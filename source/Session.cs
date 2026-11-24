@@ -105,6 +105,7 @@ namespace AstralSplit
         internal static object Create(NetworkState network, string auxiliary, string rulesPath, int testPort = 0, string peerAstralCore = null,
             RoutePlan plan = null, RouteObserver observation = null)
         {
+            if (network.GenericVpn) return CreateVpn(network, auxiliary, rulesPath, testPort, plan, observation);
             var v4 = plan?.Auxiliary4 ?? new Prefix4(RoutePlan.SelectAuxiliary4(network).Network + 1, 32).Address;
             var addresses = new List<string> { v4 + "/30" };
             if (network.Physical6 != null) addresses.Add((plan?.Auxiliary6 ?? RoutePlan.SelectAuxiliary6(network)) + "/126");
@@ -166,6 +167,84 @@ namespace AstralSplit
             return new { log, inbounds, outbounds, route, experimental = observation.EngineOptions };
         }
 
+        static object CreateVpn(NetworkState network, string auxiliary, string rulesPath, int testPort,
+            RoutePlan plan, RouteObserver observation)
+        {
+            var addresses = new List<string>();
+            if (testPort == 0)
+            {
+                plan = plan ?? new RoutePlan(network);
+                if (plan.Auxiliary4 != null) addresses.Add(plan.Auxiliary4 + "/30");
+                if (plan.Auxiliary6 != null) addresses.Add(plan.Auxiliary6 + "/126");
+            }
+            object inbound = testPort == 0 ? (object)new {
+                type = "tun", tag = "applications", interface_name = auxiliary, address = addresses,
+                mtu = plan.Mtu, auto_route = false, dns_mode = "disabled", stack = "mixed"
+            } : new { type = "mixed", tag = "applications", listen = "127.0.0.1", listen_port = testPort };
+
+            var outbounds = new List<object>();
+            if (network.Vpn4) outbounds.Add(BoundDirect(network.Astral, "astral4", 4));
+            if (network.Vpn6) outbounds.Add(BoundDirect(network.Astral, "vpn6", 6));
+            if (network.Physical4 != null) outbounds.Add(BoundDirect(network.Physical4, "direct4", 4));
+            if (network.Physical6 != null) outbounds.Add(BoundDirect(network.Physical6, "direct6", 6));
+            var boundSources = new[] { network.Astral, network.Physical4, network.Physical6 }.Where(a => a != null)
+                .SelectMany(a => a.Attached.Select(p => p.Item1).Concat(new[] { a.V4, a.V6 }))
+                .Where(address => address != null).Select(address => address.GetAddressBytes())
+                .Select(bytes => new IPAddress(bytes) + (bytes.Length == 4 ? "/32" : "/128"))
+                .Distinct().ToArray();
+            var rules = new List<object> {
+                new { source_ip_cidr = boundSources, action = "reject" },
+                new { process_path_regex = new[] { ProcessPattern(MachineStorage.Engine), ProcessPattern(Files.Engine) }, action = "reject" }
+            };
+            string[] protocols = { "tcp", "udp" };
+            void Selected(int version, bool available, string outbound, IPAddress dns)
+            {
+                if (available)
+                {
+                    if (dns != null)
+                        rules.Add(new { rule_set = "selected", network = protocols, ip_version = version, port = 53,
+                            action = "route", outbound, override_address = dns.ToString() });
+                    rules.Add(new { rule_set = "selected", network = protocols, ip_version = version, action = "route", outbound });
+                }
+                else rules.Add(new { rule_set = "selected", ip_version = version, action = "reject" });
+            }
+            Selected(4, network.Vpn4, "astral4", network.AstralDns4);
+            Selected(6, network.Vpn6, "vpn6", network.VpnDns6);
+            if (network.Physical4 != null)
+            {
+                rules.Add(new { network = "icmp", ip_version = 4, action = "route", outbound = "direct4" });
+                if (testPort == 0 && network.Guest4.Length != 0)
+                    rules.Add(new { source_ip_cidr = network.Guest4.Select(net => net.ToString()).ToArray(),
+                        network = protocols, ip_version = 4, action = "route", outbound = "direct4" });
+            }
+            if (network.Physical6 != null)
+                rules.Add(new { network = "icmp", ip_version = 6, action = "route", outbound = "direct6" });
+            rules.Add(new { process_path_regex = ".+", invert = true, action = "reject" });
+            rules.Add(network.Physical4 != null ?
+                (object)new { ip_version = 4, network = protocols, action = "route", outbound = "direct4" } :
+                new { ip_version = 4, action = "reject" });
+            rules.Add(network.Physical6 != null ?
+                (object)new { ip_version = 6, network = protocols, action = "route", outbound = "direct6" } :
+                new { ip_version = 6, action = "reject" });
+            rules.Add(new { action = "reject" });
+
+            var log = new { level = testPort == 0 ? "warn" : "info", timestamp = true };
+            var inbounds = new[] { inbound };
+            var route = new {
+                rules, find_process = true,
+                rule_set = new[] { new { type = "local", tag = "selected", format = "source", path = rulesPath } }
+            };
+            if (observation == null) return new { log, inbounds, outbounds, route };
+            return new { log, inbounds, outbounds, route, experimental = observation.EngineOptions };
+        }
+
+        static object BoundDirect(Adapter adapter, string tag, int version)
+        {
+            if (version == 4)
+                return new { type = "direct", tag, bind_interface = adapter.Name, inet4_bind_address = adapter.V4.ToString() };
+            return new { type = "direct", tag, bind_interface = adapter.Name, inet6_bind_address = adapter.V6.ToString() };
+        }
+
         internal static ProcessStartInfo Command(string command, string config)
         {
             return new ProcessStartInfo(MachineStorage.Engine, command + " -c \"" + config + "\"") {
@@ -190,6 +269,7 @@ namespace AstralSplit
         public string AuxiliaryNext6 { get; set; }
         public string AstralId { get; set; }
         public ulong AstralLuid { get; set; }
+        public bool GenericVpn { get; set; }
         public bool OriginalAutomatic { get; set; }
         public uint OriginalMetric { get; set; }
         public bool? OriginalForwarding { get; set; }
@@ -224,13 +304,13 @@ namespace AstralSplit
                 adapter.Luid != AuxiliaryLuid || adapter.Id != AuxiliaryId) return false;
             if (!route.V4)
             {
-                if (AuxiliaryNext6 == null) return route.NextHop.Address.Equals(RoutePlan.LegacyNext6);
+                if (AuxiliaryNext6 == null) return !GenericVpn && route.NextHop.Address.Equals(RoutePlan.LegacyNext6);
                 if (!IPAddress.TryParse(AuxiliaryNext6, out var next6) || next6.AddressFamily != AddressFamily.InterNetworkV6 ||
                     next6.ScopeId != 0) return false;
                 var address = next6.GetAddressBytes();
                 return address[0] == 0xfd && (address[15] & 3) == 2 && route.NextHop.Address.Equals(next6);
             }
-            if (AuxiliaryNext4 == null) return route.NextHop.Address.Equals(RoutePlan.LegacyNext4);
+            if (AuxiliaryNext4 == null) return !GenericVpn && route.NextHop.Address.Equals(RoutePlan.LegacyNext4);
             return IPAddress.TryParse(AuxiliaryNext4, out var next) && next.AddressFamily == AddressFamily.InterNetwork &&
                 RoutePlan.IsPrivateSubnet(Prefix4.From(next, 30)) && (next.GetAddressBytes()[3] & 3) == 2 &&
                 route.NextHop.Address.Equals(next);
@@ -267,8 +347,8 @@ namespace AstralSplit
                 throw new InvalidOperationException("无法读取上次的网络恢复记录。");
             var adapters = Adapter.Enumerate(onlyUp: false).ToArray();
             var auxiliary = adapters.FirstOrDefault(a => a.Id == saved.AuxiliaryId && a.Luid == saved.AuxiliaryLuid);
-            var astral = adapters.FirstOrDefault(a => a.Id == saved.AstralId && a.Luid == saved.AstralLuid &&
-                a.Description.StartsWith("astral-tun", StringComparison.OrdinalIgnoreCase));
+            var astral = saved.GenericVpn ? null : adapters.FirstOrDefault(a =>
+                a.Id == saved.AstralId && a.Luid == saved.AstralLuid && NetworkState.IsAstral(a));
             var errors = new List<Exception>();
             foreach (var route in Native.Routes())
             {
@@ -360,20 +440,25 @@ namespace AstralSplit
                         if (parent.StartTime.ToUniversalTime().Ticks != parentStart || parent.HasExited || stop.WaitOne(0)) return;
                         if (!File.Exists(Files.Engine)) throw new InvalidOperationException("还没有安装分流引擎。请先运行同目录的「下载分流引擎.cmd」。");
                         MachineStorage.PrepareEngine(Files.Engine);
+                        string vpnId = null;
+                        peer.AsUser(() => vpnId = VpnPreference.Read(VpnPreference.PathIn(peer.Folder)));
+                        Func<NetworkState> readNetwork = () => ReadNetwork(vpnId);
                         Func<int, bool> stopping = delay => parent.HasExited || stop.WaitOne(delay) || parent.HasExited;
                         string connecting = "starting";
                         Report(status, connecting, "正在检查网卡与路由…");
                         while (!stopping(0))
                         {
-                            var network = WaitForNetwork(ReadNetwork, stopping, connecting,
+                            var network = WaitForNetwork(readNetwork, stopping, connecting,
                                 (phase,detail) => Report(status, phase, detail));
                             if (network == null) break;
-                            Report(status, connecting, "正在绑定 " + network.Astral.Name + " 和 " + network.Physical4.Name + "…");
+                            var direct = String.Join(" / ", new[] { network.Physical4?.Name, network.Physical6?.Name }
+                                .Where(name => name != null).Distinct());
+                            Report(status, connecting, "正在验证 " + network.Astral.Name + " 和 " + direct + "…");
                             bool reconnect;
-                            try { reconnect = ConnectUntilChanged(id, network, stopping, stop, observations); }
+                            try { reconnect = ConnectUntilChanged(id, network, readNetwork, stopping, stop, observations); }
                             catch (ObservationBindException) {
                                 if (stopping(0)) break;
-                                reconnect = ConnectUntilChanged(id, network, stopping, stop, null);
+                                reconnect = ConnectUntilChanged(id, network, readNetwork, stopping, stop, null);
                             }
                             if (!reconnect) break;
                             connecting = "reconnecting";
@@ -422,17 +507,16 @@ namespace AstralSplit
                 if (signature != null && signature == previous) return network;
                 previous = signature;
                 string detail = signature != null ? "网络已连接，正在确认路由稳定…" :
-                    network == null || network.Physical4 == null ? "等待 IPv4 直连网络。连接后自动继续。" :
-                    "等待星云 TUN。节点连接后自动继续。";
+                    network?.Unavailable ?? "等待可用的直连网络。连接后自动继续。";
                 if (detail != lastDetail) { report(signature != null ? connecting : "waiting",detail); lastDetail = detail; }
                 if (stopping(800)) break;
             }
             return null;
         }
 
-        static NetworkState ReadNetwork()
+        static NetworkState ReadNetwork(string vpnId)
         {
-            try { return NetworkState.Read(); }
+            try { return NetworkState.Read(vpnId); }
             catch (Win32Exception ex) when (Native.InterfaceGone(ex.NativeErrorCode)) { return null; }
         }
 
@@ -442,7 +526,7 @@ namespace AstralSplit
         }
 
         sealed class ObservationBindException : Exception { }
-        static bool ConnectUntilChanged(string id, NetworkState network, Func<int, bool> stopping, WaitHandle stop,
+        static bool ConnectUntilChanged(string id, NetworkState network, Func<NetworkState> readNetwork, Func<int, bool> stopping, WaitHandle stop,
             System.IO.MemoryMappedFiles.MemoryMappedFile observations)
         {
             string status = StatusPath(id);
@@ -462,7 +546,9 @@ namespace AstralSplit
             RouteObserver observation = null;
             try
             {
-                var original = Native.ReadInterface(network.Astral.Luid, Native.IPv4);
+                if (network.GenericVpn) VpnReachability.Verify(network, true,
+                    () => { if (stopping(0)) throw new OperationCanceledException(); });
+                var original = network.GenericVpn ? new Native.MetricState() : Native.ReadInterface(network.Astral.Luid, Native.IPv4);
                 notifications = new RuleNotifications(peer.Folder, peer.AsUser);
                 peer.CopyRules(rules);
                 var ruleOwner = peer;
@@ -504,38 +590,44 @@ namespace AstralSplit
                 do
                 {
                     ensureRunning();
-                    aux = Adapter.Enumerate().FirstOrDefault(a => a.Name == auxName && Equals(a.V4, plan.Auxiliary4));
-                    if (aux != null && (plan.V6.Length == 0 || Equals(aux.V6, plan.Auxiliary6))) break;
+                    aux = Adapter.Enumerate().FirstOrDefault(a => a.Name == auxName &&
+                        (plan.Auxiliary4 == null || Equals(a.V4, plan.Auxiliary4)) &&
+                        (plan.Auxiliary6 == null || Equals(a.V6, plan.Auxiliary6)));
+                    if (aux != null) break;
                     if (deadline.Elapsed >= TimeSpan.FromSeconds(18))
                         throw new InvalidOperationException("Windows 没有准备好分流网卡。 " + EngineError(lastError));
                 } while (!stopping(240));
                 ensureRunning();
-                var live = ReadNetwork();
+                var live = readNetwork();
                 if (Changed(live, signature, aux.Luid) || !plan.AddressStillAvailable(live, aux.Luid)) return Reconnecting(status);
 
                 var recovery = new Recovery {
                     SessionId = id,
                     Name = aux.Name, AuxiliaryId = aux.Id, AuxiliaryLuid = aux.Luid,
-                    AuxiliaryNext4 = plan.Next4.ToString(),
+                    AuxiliaryNext4 = plan.Next4?.ToString(),
                     AuxiliaryNext6 = plan.Next6?.ToString(),
                     AstralId = network.Astral.Id, AstralLuid = network.Astral.Luid,
+                    GenericVpn = network.GenericVpn,
                     OriginalAutomatic = original.Automatic, OriginalMetric = original.Metric,
                     OriginalForwarding = original.Forwarding
                 };
                 Files.Write(MachineStorage.Journal, recovery);
-                // A forwarding-enabled tun0 can route a bound socket back into our capture interface.
-                Native.WriteMetric(network.Astral.Luid, Native.IPv4, false, Recovery.SessionMetric, forwarding: false);
-                if (!network.AstralHasDefault)
-                    recovery.AddFallback(network.AstralGateway);
+                if (!network.GenericVpn)
+                {
+                    // A forwarding-enabled Astral tun0 can route a bound socket back into our capture interface.
+                    Native.WriteMetric(network.Astral.Luid, Native.IPv4, false, Recovery.SessionMetric, forwarding: false);
+                    if (!network.AstralHasDefault) recovery.AddFallback(network.AstralGateway);
+                }
                 plan.Install(aux, ensureRunning);
                 plan.Verify(aux, network, ensureRunning);
-                live = ReadNetwork();
+                live = readNetwork();
                 if (Changed(live, signature, aux.Luid)) return Reconnecting(status);
                 if (!RoutesIntact(live, network, plan, aux))
                     throw new InvalidOperationException("Windows 没有保留完整的分流路由。");
                 Report(status, "active", "");
                 observation?.Start(engine);
-                meter=RoutedByteMeter.Start(engine.Id,network.Astral.V4,Directory.GetParent(peer.Folder).Parent.FullName,peer.TransferRun,peer.AsUser);
+                if (network.Vpn4)
+                    meter=RoutedByteMeter.Start(engine.Id,network.Astral.V4,Directory.GetParent(peer.Folder).Parent.FullName,peer.TransferRun,peer.AsUser);
 
                 var watchdog = Stopwatch.StartNew();
                 var ruleCheck = Stopwatch.StartNew();
@@ -550,7 +642,7 @@ namespace AstralSplit
                         watchdog.Restart();
                         meter?.Checkpoint();
                         if(meter?.Complete==true){meter.Dispose();meter=null;}
-                        live = ReadNetwork();
+                        live = readNetwork();
                         if (Changed(live, signature, aux.Luid) || !RoutesIntact(live, network, plan, aux))
                             return Reconnecting(status);
                         ensureRunning();
@@ -577,7 +669,7 @@ namespace AstralSplit
             catch (Exception ex) when (ex is Win32Exception || ex is InvalidOperationException)
             {
                 if (stopping(0)) return false;
-                if (Changed(ReadNetwork(), signature, aux == null ? 0 : aux.Luid)) return Reconnecting(status);
+                if (Changed(readNetwork(), signature, aux == null ? 0 : aux.Luid)) return Reconnecting(status);
                 throw;
             }
             finally
@@ -600,15 +692,19 @@ namespace AstralSplit
 
         static bool RoutesIntact(NetworkState live, NetworkState original, RoutePlan plan, Adapter auxiliary)
         {
+            if (!plan.IsInstalled(live.Routes, auxiliary.Luid) || !plan.AddressStillAvailable(live, auxiliary.Luid))
+                return false;
+            bool ValidMetric(ushort family)
+            {
+                var current = Native.ReadInterface(auxiliary.Luid, family);
+                return current.Metric == 0 && current.Mtu == plan.Mtu;
+            }
+            if (plan.Auxiliary4 != null && !ValidMetric(Native.IPv4) || plan.Auxiliary6 != null && !ValidMetric(Native.IPv6)) return false;
+            if (original.GenericVpn) return true;
             var fallbackPresent = original.AstralHasDefault || live.Routes.Any(route =>
                 route.Luid == original.Astral.Luid && Recovery.IsOwnedFallback(route) && Equals(route.NextHop.Address, original.AstralGateway));
             var astral = Native.ReadInterface(original.Astral.Luid, Native.IPv4);
-            var auxiliary4 = Native.ReadInterface(auxiliary.Luid, Native.IPv4);
-            var auxiliary6 = plan.V6.Length == 0 ? auxiliary4 : Native.ReadInterface(auxiliary.Luid, Native.IPv6);
-            return fallbackPresent && plan.IsInstalled(live.Routes, auxiliary.Luid) && plan.AddressStillAvailable(live, auxiliary.Luid) &&
-                !astral.Forwarding && !astral.Automatic && astral.Metric == Recovery.SessionMetric &&
-                auxiliary4.Metric == 0 && auxiliary4.Mtu == plan.Mtu &&
-                auxiliary6.Metric == 0 && auxiliary6.Mtu == plan.Mtu;
+            return fallbackPresent && !astral.Forwarding && !astral.Automatic && astral.Metric == Recovery.SessionMetric;
         }
 
         static void StopEngine(Process engine)

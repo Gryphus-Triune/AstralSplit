@@ -125,7 +125,7 @@ namespace AstralSplit
                     if(elapsed>0 && elapsed<=8){
                         observedRatesReady=true;
                         foreach(var flow in sample.Connections ?? Array.Empty<RouteObservation>()){
-                            if(flow.Outlet!="astral4" || String.IsNullOrEmpty(flow.Path) || flow.Id==null)continue;
+                            if(!ConnectionSummary.IsTunnelOutlet(flow.Outlet) || String.IsNullOrEmpty(flow.Path) || flow.Id==null)continue;
                             bool known=old.TryGetValue(flow.Id,out var prior);
                             if(!known && flow.StartedUtcTicks<before.SampleUtcTicks)continue;
                             if(known && (!String.Equals(prior.Path,flow.Path,StringComparison.OrdinalIgnoreCase) ||
@@ -155,9 +155,9 @@ namespace AstralSplit
         {
             return utc>0 && utc<=DateTime.MaxValue.Ticks?new DateTime(utc,DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss"):"时间未知";
         }
-        static string OutletName(string outlet)
+        string OutletName(string outlet)
         {
-            switch(outlet){case "astral4":return "星云 TUN";case "direct4":return "直连 IPv4";case "direct6":return "直连 IPv6";default:return "出口未知";}
+            switch(outlet){case "astral4":return TunnelName+" IPv4";case "vpn6":return TunnelName+" IPv6";case "direct4":return "直连 IPv4";case "direct6":return "直连 IPv6";default:return "出口未知";}
         }
         static string ByteLabel(long bytes)
         {
@@ -177,12 +177,12 @@ namespace AstralSplit
             var body=new StringBuilder();
             bool saving=!pendingSave.IsCompleted;
             cardSummary.Text=matches.Length!=0?
-                "近期观测到 "+matches.Length+" 条连接 · "+matches.Count(x=>x.Outlet=="astral4")+" 条交给星云":
+                "近期观测到 "+matches.Length+" 条连接 · "+matches.Count(x=>ConnectionSummary.IsTunnelOutlet(x.Outlet))+" 条交给"+TunnelName:
                 id==null?(trialInProgress?"等待试用分流就绪":
                     App.BrowseOnly?"预览模式 · 连接记录须在分流时查看":"分流已关闭 · 当前没有连接记录"):
                 fresh?"等待该应用的新连接":"等待引擎提供连接记录";
             bool selected=committedChoices.Contains(cardPath,StringComparer.OrdinalIgnoreCase);
-            body.AppendLine("应用选择　"+(saving?"正在保存":selected?"已保存为走星云":"未选中"));
+            body.AppendLine("应用选择　"+(saving?"正在保存":selected?"已保存为走"+TunnelName:"未选中"));
             if(id!=null)body.AppendLine("实测 TUN 流量　"+ObservedAppTraffic(cardPath));
             if(trialInProgress && trialPlan!=null)
                 body.AppendLine("本次连接按试用开始时的应用选择处理。");
@@ -218,8 +218,8 @@ namespace AstralSplit
             var menu=new ContextMenu{PlacementTarget=cardProbe,Placement=PlacementMode.Top};
             foreach(bool tun in new[]{true,false}){
                 var address=tun?network?.Astral?.V4:network?.Physical4?.V4;
-                string label=tun?"星云 TUN":"直连网卡";
-                var item=new MenuItem{Header="检测"+label,IsEnabled=address!=null};
+                string label=tun?TunnelName+"网卡":"直连网卡";
+                var item=new MenuItem{Header="检测"+label+"的 IPv4",IsEnabled=address!=null};
                 item.Click+=(s,e)=>ProbeOutlet(label,address);
                 menu.Items.Add(item);
             }

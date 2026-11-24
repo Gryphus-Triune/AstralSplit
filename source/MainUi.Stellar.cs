@@ -221,7 +221,7 @@ namespace AstralSplit
                 if(rowsActive && row.Selected && rates!=null)rates.TryGetValue(row.Path,out rate);
                 row.SetVisualRate(rate);
             }
-            trafficDetail.Text = "星云 TUN  " + StellarTrafficView.Format(tun) + "    上联网卡  " + StellarTrafficView.Format(uplink) +
+            trafficDetail.Text = TunnelName + "网卡  " + StellarTrafficView.Format(tun) + "    上联网卡  " + StellarTrafficView.Format(uplink) +
                 "（含隧道和其他流量）" + Environment.NewLine +
                 "右侧蓝光 · 上传  " + StellarTrafficView.Format(sample?.TunUpload) +
                 "    左侧红光 · 下载  " + StellarTrafficView.Format(sample?.TunDownload) + Environment.NewLine +

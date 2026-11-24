@@ -138,7 +138,7 @@ namespace AstralSplit
             Notify("Name");
             Notify("ToggleLabel");
         }
-        public string ToggleLabel { get { return "为 " + (showPath ? Path : Name) + " 启用星云 TUN"; } }
+        public string ToggleLabel { get { return "为 " + (showPath ? Path : Name) + " 选择 VPN 分流"; } }
         public bool PendingRemoval { get { return pendingRemoval; } internal set {
             if (pendingRemoval == value) return;
             pendingRemoval = value;
@@ -436,6 +436,7 @@ namespace AstralSplit
             SetSort(true);
             InitializePresentation();
             BindConnectionControls();
+            BindVpnControls();
 
             var trayMenu = new GlassTrayMenu(ReadAppDarkMode);
             trayMenu.Items.Add("打开星云分流", null, (s, e) => ShowWindow()).Name="OpenWindow";
@@ -601,9 +602,10 @@ namespace AstralSplit
                 if (entries.Any(entry => !(entry is FileInfo) || IsLink(entry))) return;
                 if (canceled)
                 {
-                    if (entries.Length > 1 || (entries.Length == 1 && entries[0].Name != "selection.json")) return;
+                    if (entries.Any(entry => entry.Name != "selection.json" && entry.Name != VpnPreference.FileName)) return;
                 }
-                else if (!IsTerminal(directory) || entries.Any(entry => entry.Name != "status.json" && entry.Name != "router.json" && entry.Name != "selection.json")) return;
+                else if (!IsTerminal(directory) || entries.Any(entry => entry.Name != "status.json" && entry.Name != "router.json" &&
+                    entry.Name != "selection.json" && entry.Name != VpnPreference.FileName)) return;
                 foreach (var entry in entries.OrderBy(entry => entry.Name == "status.json")) entry.Delete();
                 directory.Delete(false);
             }
@@ -887,13 +889,27 @@ namespace AstralSplit
             if (networkInProgress) return;
             networkInProgress = true;
             int revision = workerExitRevision;
+            int profileRevision = vpnRevision;
+            string profile = vpnAdapterId;
+            string preferenceError = vpnPreferenceError;
+            bool loadPreference = !savingVpnPreference && (!vpnPreferenceLoaded || preferenceError != null);
             bool pending = false, legacyPresent = false;
-            try { network = await Task.Run(() => {
+            NetworkState snapshot = null;
+            try { snapshot = await Task.Run(() => {
                 pending = Recovery.Pending;
                 legacyPresent = Recovery.LegacyRecordPresent;
-                return NetworkState.Read();
+                if (loadPreference)
+                {
+                    try
+                    {
+                        profile = VpnPreference.Read(VpnPreference.PathIn(Files.Home));
+                        preferenceError = null;
+                    }
+                    catch (Exception ex) { preferenceError = ex.Message; }
+                }
+                return NetworkState.Read(profile);
             }); }
-            catch (Exception) { network = null; }
+            catch (Exception) { }
             finally
             {
                 legacyRecoveryPresent = legacyPresent;
@@ -903,10 +919,20 @@ namespace AstralSplit
                     trialRecoveryCheckPending=false;
                 }
                 networkInProgress = false;
-                nextNetwork = DateTime.UtcNow.AddSeconds(4);
+                if (profileRevision == vpnRevision)
+                {
+                    network = snapshot;
+                    if (loadPreference)
+                    {
+                        vpnAdapterId = profile;
+                        vpnPreferenceError = preferenceError;
+                        vpnPreferenceLoaded = true;
+                    }
+                    nextNetwork = DateTime.UtcNow.AddSeconds(4);
+                }
                 if (!closed) {
                     UpdateState();
-                    if(trialRecoveryCheckPending)UpdateNetwork();
+                    if(trialRecoveryCheckPending || profileRevision != vpnRevision)UpdateNetwork();
                 }
             }
         }
@@ -943,6 +969,7 @@ namespace AstralSplit
                     if (!choicesLoaded) await LoadChoices();
                     RefreshApps(true); UpdateNetwork(); break;
                 case "Sort": OpenSortMenu(true); break;
+                case "VpnAdapter": OpenVpnMenu(); break;
                 case "ClearSearch": search.Clear(); search.Focus(); break;
                 case "AllApps": SetFilter(false); break;
                 case "SelectedApps": SetFilter(true); break;
@@ -1029,7 +1056,13 @@ namespace AstralSplit
             try
             {
                 if (!recoverOnly)
-                    await Task.Run(() => EngineConfig.WriteRules(RouterSession.RulesPath(id), initial)).ConfigureAwait(false);
+                {
+                    string profile = vpnAdapterId;
+                    await Task.Run(() => {
+                        EngineConfig.WriteRules(RouterSession.RulesPath(id), initial);
+                        Files.Write(VpnPreference.PathIn(RouterSession.Folder(id)), profile);
+                    }).ConfigureAwait(false);
+                }
                 if (Volatile.Read(ref closed)) return null;
                 launched = await Task.Factory.StartNew(() => SessionAuthorization.Current.StartSession(id, recoverOnly),
                     CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default).ConfigureAwait(false);
@@ -1047,7 +1080,7 @@ namespace AstralSplit
         async Task Start(bool recoverOnly)
         {
             if (App.BrowseOnly || TrialWorkerPhase!=null) return;
-            if (closed || closingAfterSave || (!recoverOnly && !choicesLoaded)) { UpdateState(); return; }
+            if (closed || closingAfterSave || (!recoverOnly && (!choicesLoaded || !VpnPreferenceReady))) { UpdateState(); return; }
             sessionId = Guid.NewGuid().ToString("N");
             message = null;
             promoting = true;
@@ -1165,8 +1198,8 @@ namespace AstralSplit
         void UpdateState()
         {
             var astral = network == null ? null : network.Astral;
-            var physical = network == null ? null : network.Physical4;
-            bool ready = network != null && network.Ready;
+            var physical = network?.Physical4 ?? (UsingGenericVpn ? network?.Physical6 : null);
+            bool ready = network != null && network.Ready && VpnPreferenceReady;
             bool running = phase == "active" && !stopping;
             string trial=TrialWorkerPhase;
             bool trialRunning=trial=="active";
@@ -1208,8 +1241,8 @@ namespace AstralSplit
             {
                 title = "分流已启用";
                 description = !choicesLoaded ? listStatus : committedChoices.Length == 0
-                    ? "选中下方的应用，它下次连接时就会交给星云。"
-                    : "你选的应用交给星云，其他应用照常直连。";
+                    ? "选中下方的应用，它下次连接时就会交给" + TunnelName + "。"
+                    : "你选的应用交给" + TunnelName + "，其他应用照常直连。";
                 statusColor = listUnavailable ? "StatusWarning" : choicesLoaded ? "StatusOn" : "StatusBusy";
                 if (!String.IsNullOrWhiteSpace(phaseDetail)) {
                     description = phaseDetail;
@@ -1227,7 +1260,7 @@ namespace AstralSplit
             else if (phase == "unknown")
             {
                 title = "分流状态未知";
-                description = "暂时无法确认应用是否正经过星云。";
+                description = "暂时无法确认应用是否正经过" + TunnelName + "。";
                 reason = phaseDetail;
                 statusColor = "StatusWarning";
             }
@@ -1247,7 +1280,10 @@ namespace AstralSplit
             {
                 title = "分流已关闭";
                 if (!choicesLoaded) description = listStatus;
+                else if (vpnPreferenceError != null) description = "VPN 网卡设置需要重新选择。";
+                else if (savingVpnPreference) description = "正在保存 VPN 网卡选择…";
                 else if (network == null) description = checkingNetwork ? "正在检查网络连接…" : "暂时读不到网络信息，点「刷新」重试。";
+                else if (UsingGenericVpn) description = ready ? "打开分流后，你选的应用会交给所选 VPN。" : network.Unavailable;
                 else if (astral == null) description = "先在星云加速器里打开 TUN，再连接一个节点。";
                 else if (physical == null) description = "正在等待可以直连的网络。";
                 else description = ready ? "打开分流后，你选的应用会交给星云。" : "已找到星云，正在等节点连接就绪。";
@@ -1260,6 +1296,8 @@ namespace AstralSplit
             SyncTrayState(title, statusColor, trial!=null?trialPlan?.Count??-1:choicesLoaded?committedChoices.Length:-1, connected);
             if (listUnavailable)
                 reason = String.IsNullOrWhiteSpace(reason) ? selectionIssue : reason + Environment.NewLine + selectionIssue;
+            if (vpnPreferenceError != null)
+                reason = String.IsNullOrWhiteSpace(reason) ? vpnPreferenceError : reason + Environment.NewLine + vpnPreferenceError;
             detailReason.Text = reason ?? String.Empty;
             detailReason.Visibility = String.IsNullOrWhiteSpace(reason) ? Visibility.Collapsed : Visibility.Visible;
             master.IsChecked = running || (worker != null && !stopping && !restoring) || (promoting && !restoring);
@@ -1274,8 +1312,10 @@ namespace AstralSplit
                 (worker != null || (choicesLoaded && ready));
             applications.IsEnabled = choicesLoaded && !promoting && !closingAfterSave;
             networkText.Text = network == null ? (checkingNetwork ? "正在检查网卡" : "暂时无法读取网卡") :
-                (astral == null ? "未检测到星云 TUN" : "星云网卡 " + astral.Name) + "  ·  " +
-                (physical == null ? "无 IPv4 直连网络" : "直连网卡 " + physical.Name);
+                (astral == null ? (UsingGenericVpn ? "已选 VPN 网卡未连接" : "未检测到星云 TUN") :
+                    (UsingGenericVpn ? "VPN 网卡 " : "星云网卡 ") + astral.Name) + "  ·  " +
+                (physical == null ? (UsingGenericVpn ? "无直连网络" : "无 IPv4 直连网络") : "直连网卡 " + physical.Name);
+            PaintVpnControls();
             bool animateDot = UiMotion.CanAnimate(dot);
             SetColor(networkFill, Theme(ready ? "SkyStatusOn" : "SkyStatusOff"), 250, animateDot ? DisplayRefresh.For(dot) : null, animateDot);
             recover.Visibility = recovering ? Visibility.Visible : Visibility.Collapsed;

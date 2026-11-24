@@ -64,22 +64,23 @@
             </Setter>
         </Style>
         <Style x:Key="SortOption" TargetType="MenuItem">
-            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Subtle}"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/></DataTemplate></Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="OptionFace" CornerRadius="6" Background="Transparent" Padding="8">
+                        <Border x:Name="OptionFace" CornerRadius="9" Background="Transparent" Padding="10,8">
                             <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="23"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <app:LiquidLens x:Name="OptionGlass" Grid.ColumnSpan="2" Margin="-7" Radius="7" SampleScene="True" Strength="0.57"
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
+                                <app:LiquidLens x:Name="OptionGlass" Grid.ColumnSpan="2" Margin="-9,-7" Radius="9" SampleScene="True" Strength="0.57"
                                                 Tint="{DynamicResource GlassTab}" Visibility="Collapsed"/>
-                                <Border x:Name="ConfirmPulse" Grid.ColumnSpan="2" CornerRadius="6" Margin="-8"
-                                        Background="{DynamicResource Accent}" Opacity="0" IsHitTestVisible="False"/>
-                                <Path x:Name="CheckMark" Width="12" Height="9" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                      Data="M1,5 L4,8 L11,1" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5" StrokeLineJoin="Round"
+                                <Path x:Name="CheckMark" Grid.Column="1" Width="13" Height="10" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                      Data="M1,5 L4.5,8.5 L12,1" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.65" StrokeLineJoin="Round"
                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Hidden"/>
-                                <Grid Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <Grid VerticalAlignment="Center">
                                     <ContentPresenter ContentSource="Header" CacheMode="{StaticResource ForegroundCache}" RecognizesAccessKey="True"/>
                                     <Border x:Name="NavigationLine" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,-1"
                                             Background="{TemplateBinding Foreground}" Visibility="Hidden" IsHitTestVisible="False"/>
@@ -111,8 +112,11 @@
                                 <Border.Effect><DropShadowEffect Direction="270" ShadowDepth="8" BlurRadius="24" Opacity="0.18"/></Border.Effect>
                             </Border>
                             <app:FrostedPane x:Name="MenuFrost" Backdrop="{Binding (app:LiquidLens.Scene),RelativeSource={RelativeSource TemplatedParent}}" Film="{DynamicResource MenuFilm}"/>
-                            <Border CornerRadius="14" Padding="4" BorderBrush="{DynamicResource GlassSeam}" BorderThickness="1" app:LiquidLens.Scene="{Binding ElementName=MenuFrost}">
-                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                            <Border CornerRadius="14" Padding="4" BorderBrush="{DynamicResource GlassSeam}" BorderThickness="1"
+                                    app:LiquidLens.Scene="{Binding ElementName=MenuFrost}" app:LiquidLens.SceneCoat="{DynamicResource MenuFilm}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Focusable="False">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                </ScrollViewer>
                             </Border>
                         </Grid>
                     </ControlTemplate>
@@ -495,7 +499,7 @@
                             </StackPanel>
                             <app:StellarTrafficView x:Name="StellarTraffic" Grid.Column="2" VerticalAlignment="Center" Width="157" Height="43"
                                 AutomationProperties.Name="网卡收发速率" ToolTipService.InitialShowDelay="600"
-                                ToolTip="TUN 显示星云虚拟网卡的收发总速率。上联显示物理网卡的收发总速率，包含隧道传输和其他应用流量。"/>
+                                ToolTip="TUN 显示所选虚拟网卡的收发总速率。上联显示直连网卡的收发总速率，包含隧道传输和其他应用流量。"/>
                             <app:AnimatedSwitch x:Name="Master" Grid.Column="3" Margin="16,0" Style="{StaticResource MainSwitch}" OffBrush="{DynamicResource SkyTrack}" AutomationProperties.Name="启用应用分流" app:LiquidLens.Scene="{Binding ElementName=Sky}" app:LiquidLens.SceneCoat="{DynamicResource StatusCardFilm}"/>
                             <Border x:Name="BusyPressShield" Grid.Column="3" Margin="16,0" Width="{Binding ActualWidth, ElementName=Master}" Height="{Binding ActualHeight, ElementName=Master}" VerticalAlignment="Center"
                                     Background="Transparent" Visibility="Collapsed"/>
@@ -545,6 +549,16 @@
                             </StackPanel>
                             </ScrollViewer>
                         </Expander>
+                        <Button x:Name="VpnAdapter" Grid.Row="1" Height="24" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,4,16,0" Padding="8,0" Style="{StaticResource PlainButton}"
+                                app:LiquidLens.Scene="{Binding ElementName=Sky}" AutomationProperties.Name="VPN 网卡">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="VPN 网卡" FontSize="12" Foreground="{DynamicResource SkyBodyText}"/>
+                                <Path Width="9" Height="8" Margin="5,0,0,0" VerticalAlignment="Center" Data="M1,2 L4.5,5.5 8,2"
+                                      Stroke="{DynamicResource SkySecondary}" StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                            </StackPanel>
+                        </Button>
                     </Grid>
                 </Grid>
                 <Grid x:Name="NoticeReveal" ClipToBounds="True" Visibility="Collapsed" Opacity="0">

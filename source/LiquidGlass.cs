@@ -706,9 +706,13 @@ namespace AstralSplit
         static void Paint(DependencyObject o,DependencyPropertyChangedEventArgs e) { ((FrostedPane)o).Draw(); }
         void Align(object s,EventArgs e)
         {
-            if(Backdrop is StarfieldLayer sky && FindCommonVisualAncestor(sky)!=null)
+            if(Backdrop is StarfieldLayer sky)
             {
-                Point origin=TranslatePoint(new Point(),sky);
+                Point origin;
+                if(FindCommonVisualAncestor(sky)!=null)origin=TranslatePoint(new Point(),sky);
+                else if(LiquidLens.GetGlassEnabled(this) && GlassSampling.Map(this,sky,sample,new Rect(RenderSize)))
+                    origin=sample.Viewbox.TopLeft;
+                else return;
                 if(skyOrigin.X!=-origin.X) skyOrigin.X=-origin.X;
                 if(skyOrigin.Y!=-origin.Y) skyOrigin.Y=-origin.Y;
                 if(this is LiquidSheet)sky.CoverWithGlass(this,IsVisible && LiquidLens.GetGlassEnabled(this)?new Rect(origin,RenderSize):Rect.Empty);

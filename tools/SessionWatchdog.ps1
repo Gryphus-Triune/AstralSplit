@@ -41,18 +41,55 @@ function Find-Workers {
         if (!$entry.CommandLine -or $entry.CommandLine -match '(?:^|\s)--(?:session|restore)(?:\s|$)') { $entry.ProcessId }
     }
 }
-function Snapshot {
+function Read-VpnPreference([string]$folder) {
+    if ($isAdmin -and !$reportIdentity) {throw 'Unprivileged profile token not verified.'}
+    $context=if ($reportIdentity){$reportIdentity.Impersonate()}
+    try {
+        $path=Join-Path $folder 'vpn-adapter.json'
+        try { $inputFile=[IO.File]::Open($path,'Open','Read',([IO.FileShare]::Read -bor [IO.FileShare]::Delete)) }
+        catch [IO.FileNotFoundException] { return $null }
+        catch [IO.DirectoryNotFoundException] { return $null }
+        try {
+            if ($inputFile.Length -gt 256) {throw 'Saved VPN selection is too large.'}
+            $reader=[IO.StreamReader]::new($inputFile)
+            try { $json=$reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
+        } finally { $inputFile.Dispose() }
+        if ($json -ceq 'null') {return $null}
+        $guid=[guid]::Empty
+        if ($json -cnotmatch '^"([a-fA-F0-9-]{36})"$' -or ![guid]::TryParseExact($Matches[1],'D',[ref]$guid) -or
+            $guid -eq [guid]::Empty) {throw 'Saved VPN selection is invalid.'}
+        return $guid.ToString('D')
+    } finally {if ($context){$context.Undo();$context.Dispose()}}
+}
+function Snapshot([string]$vpnId) {
     $adapters = @(Get-NetAdapter -IncludeHidden)
-    $astral = @($adapters | Where-Object { $_.InterfaceDescription -like 'astral-tun*' -and $_.Status -eq 'Up' })
-    if ($astral.Count -ne 1) { throw 'Expected precisely one connected Astral TUN.' }
-    $iface = Get-NetIPInterface -AddressFamily IPv4 -InterfaceIndex $astral[0].ifIndex
+    $interfaces = @([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object {
+        if ($_.OperationalStatus -ne 'Up' -or $_.Name -like 'ASplit-*') {return $false}
+        if ($vpnId -and $_.Id.Trim('{}') -ine $vpnId -or !$vpnId -and $_.Description -notlike 'astral-tun*') {return $false}
+        $addresses = @($_.GetIPProperties().UnicastAddresses | Where-Object {
+            ![Net.IPAddress]::IsLoopback($_.Address) -and !$_.Address.IsIPv6LinkLocal -and
+            ($vpnId -or $_.Address.AddressFamily -eq 'InterNetwork')
+        })
+        $addresses.Count -gt 0
+    })
+    if ($interfaces.Count -ne 1) { throw 'Connect the selected VPN interface before starting a trial.' }
+    $tunnel=$interfaces[0]
+    $properties=$tunnel.GetIPProperties()
+    $v4=if ($tunnel.Supports('IPv4')) {$properties.GetIPv4Properties()}
+    $v6=if ($tunnel.Supports('IPv6')) {$properties.GetIPv6Properties()}
+    $index=if ($v4) {$v4.Index} elseif ($v6) {$v6.Index} else {throw 'The VPN interface has no IP index.'}
+    $astralMode=$tunnel.Description -like 'astral-tun*' -and @($properties.UnicastAddresses |
+        Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and ![Net.IPAddress]::IsLoopback($_.Address) }).Count -gt 0
+    $ifaces=@(Get-NetIPInterface -InterfaceIndex $index | Where-Object { !$astralMode -or $_.AddressFamily -eq 'IPv4' } | Sort-Object AddressFamily)
+    if (!$ifaces.Count) {throw 'Cannot verify the VPN interface settings.'}
     $routes = @(Get-NetRoute -PolicyStore ActiveStore)
-    $defaults = @($routes | Where-Object { $_.InterfaceIndex -eq $iface.InterfaceIndex -and $_.DestinationPrefix -eq '0.0.0.0/0' } | ForEach-Object { '{0}|{1}|{2}' -f $_.NextHop,$_.RouteMetric,$_.Protocol } | Sort-Object)
+    $defaults = @($routes | Where-Object { $_.InterfaceIndex -eq $index -and (!$astralMode -or $_.DestinationPrefix -eq '0.0.0.0/0') } |
+        ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.DestinationPrefix,$_.NextHop,$_.RouteMetric,$_.Protocol } | Sort-Object)
     $capture = @($routes | Where-Object { $_.InterfaceAlias -like 'ASplit-*' })
     [uint64]$luid=0
-    if ([AstralQaStop]::ConvertInterfaceIndexToLuid($iface.InterfaceIndex,[ref]$luid) -ne 0 -or !$luid) {throw 'Cannot verify Astral interface LUID.'}
-    [pscustomobject]@{ Guid=[string]$astral[0].InterfaceGuid; Luid=[string]$luid; Index=[int]$iface.InterfaceIndex; Metric=[int]$iface.InterfaceMetric;
-        Automatic=[string]$iface.AutomaticMetric; Forwarding=[string]$iface.Forwarding; Defaults=($defaults -join ',');
+    if ([AstralQaStop]::ConvertInterfaceIndexToLuid($index,[ref]$luid) -ne 0 -or !$luid) {throw 'Cannot verify VPN interface LUID.'}
+    [pscustomobject]@{ Guid=$tunnel.Id; Luid=[string]$luid; Index=[int]$index; Metric=($ifaces.InterfaceMetric -join ',');
+        Automatic=($ifaces.AutomaticMetric -join ','); Forwarding=($ifaces.Forwarding -join ','); Defaults=($defaults -join ',');
         AdapterCount=@($adapters | Where-Object { $_.Name -like 'ASplit-*' -and $_.Status -eq 'Up' }).Count;
         CaptureCount=$capture.Count; JournalCount=[int]([IO.File]::Exists($machineJournal)) }
 }
@@ -196,9 +233,12 @@ function Write-Rules {
         if (!@($patterns | Where-Object { [regex]::IsMatch($one,$_) }).Count) {throw 'Saved application missing from test rules.'}
     }
     $data=@{version=3;rules=$rules} | ConvertTo-Json -Depth 5 -Compress
+    $vpnId=Read-VpnPreference $localStore
     if ([IO.Directory]::Exists($sessionDir)) {throw 'Session ID already exists.'}
     [void][IO.Directory]::CreateDirectory($sessionDir)
     [IO.File]::WriteAllText((Join-Path $sessionDir 'selection.json'),$data,[Text.UTF8Encoding]::new($false))
+    $vpnJson=if ($vpnId) {'"'+$vpnId+'"'} else {'null'}
+    [IO.File]::WriteAllText((Join-Path $sessionDir 'vpn-adapter.json'),$vpnJson,[Text.UTF8Encoding]::new($false))
 }
 if ($Action -eq 'Start') {
     if ($isAdmin) {throw '请在普通桌面双击启动，授权时再允许 Windows 提示。'}
@@ -277,7 +317,8 @@ try {
         if (!$isAdmin) { throw 'Detached watchdog did not receive the elevated token.' }
         Check-Exe
         Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AstralQaStop { [DllImport("kernel32.dll",SetLastError=true)] public static extern bool TerminateProcess(IntPtr process,uint code); [DllImport("iphlpapi.dll")] public static extern uint ConvertInterfaceIndexToLuid(uint index,out ulong luid); }'
-        $baseline=Snapshot
+        $vpnId=Read-VpnPreference $sessionDir
+        $baseline=Snapshot $vpnId
         if ($baseline.CaptureCount -or $baseline.AdapterCount -or $baseline.JournalCount -or @(Find-Workers).Count -or
             @(Get-Process -Name 'AstralSplit.Router' -ErrorAction SilentlyContinue).Count) { throw 'Another session or unrecovered network state is present.' }
         Save-Record 'baseline.json' $baseline
@@ -337,7 +378,7 @@ finally {
             }
             $settle=[Diagnostics.Stopwatch]::StartNew()
             do {
-                $after=Snapshot
+                $after=Snapshot $vpnId
                 $engineGone=(@(Get-Process 'AstralSplit.Router' -ErrorAction SilentlyContinue).Count -eq 0)
                 $verified=Is-Clean $baseline $after $worker.HasExited $engineGone
                 if ($verified) {break}

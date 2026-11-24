@@ -69,6 +69,8 @@ namespace AstralSplit
         }
         public sealed class Reply { public Link[] connections { get; set; } }
 
+        internal static bool IsTunnelOutlet(string tag) { return tag == "astral4" || tag == "vpn6"; }
+
         static string Executable(string raw)
         {
             if (String.IsNullOrEmpty(raw) || raw.Length > 8192) return null;
@@ -84,7 +86,7 @@ namespace AstralSplit
             if (chain == null) return "unknown";
             string outlet = null;
             foreach (var tag in chain) {
-                if (tag != "astral4" && tag != "direct4" && tag != "direct6") continue;
+                if (!IsTunnelOutlet(tag) && tag != "direct4" && tag != "direct6") continue;
                 if (outlet != null && outlet != tag) return "unknown";
                 outlet = tag;
             }

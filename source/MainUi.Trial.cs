@@ -68,10 +68,10 @@ namespace AstralSplit
             if(closed || trialInProgress){if(!closed)ShowTrialCard();return;}
             ShowTrialCard();
             if(App.BrowseOnly){trialText="此窗口用于预览。退出后打开 AstralSplit.exe，即可进行真实试用。";PaintTrialCard();return;}
-            if(worker!=null || promoting || stopping || restoring || recoveryPending || trialRecoveryCheckPending || !choicesLoaded){
-                trialText="请在应用选择就绪、分流关闭且网络恢复完成后开始试用。";PaintTrialCard();return;
+            if(worker!=null || promoting || stopping || restoring || recoveryPending || trialRecoveryCheckPending || !choicesLoaded || !VpnPreferenceReady){
+                trialText="请在应用和 VPN 网卡选择就绪、分流关闭且网络恢复完成后开始试用。";PaintTrialCard();return;
             }
-            if(!await pendingSave || closed || worker!=null || promoting || TrialWorkerPhase!=null)return;
+            if(!await pendingSave || closed || worker!=null || promoting || TrialWorkerPhase!=null || !VpnPreferenceReady)return;
             var snapshot=committedChoices;
             if(snapshot.Length==0){trialText="请先在应用列表中勾选要试用的程序。";PaintTrialCard();return;}
             if(MessageBox.Show(Window,"对当前勾选的 "+snapshot.Length+" 个程序临时开启分流。Windows 会为独立计时器申请一次授权。60 秒后自动停止并核对网络恢复。",
