@@ -6,7 +6,7 @@ AstralSplit 是一款 Windows 按应用分流工具。勾选应用的新建公�
 
 ## 下载与使用
 
-在本仓库的 **Releases** 打开「AstralSplit 2.0.0 · 通用 VPN」并下载 Windows x64 便携包，完整解压。首次使用分流时，双击「下载分流引擎.cmd」，等待脚本取得并核对官方 sing-box，再运行 `AstralSplit.exe`。程序启动时会申请本次运行的管理员授权。「预览界面.cmd」可以先查看界面，预览结束后可从托盘退出。
+2.0.0 是 AstralSplit 的首个正式版本。请从 [最新正式版](https://github.com/Gryphus-Triune/AstralSplit/releases/latest) 下载 Windows x64 便携包并完整解压。首次使用分流时，双击「下载分流引擎.cmd」，等待脚本取得并核对官方 sing-box，再运行 `AstralSplit.exe`。程序启动时会申请本次运行的管理员授权。「预览界面.cmd」可以先查看界面，预览结束后可从托盘退出。
 
 1. 连接 VPN，并开启其 TUN 或全局路由。星云用户可沿用默认的「星云自动识别」。使用其他 VPN 时，点击状态卡的「VPN 网卡」选择对应网卡。
 2. 勾选要经 VPN 的应用，然后开启分流总开关。
