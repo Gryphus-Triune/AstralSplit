@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Output,[ValidateSet('main','projected','stellarLens','stellarStandby','depositPS','moteVS','motePS','dustVS','dustPS','magneticVS','magneticPS','magneticOptimizedPS','magneticLookup','magneticMap','nebulaPS','stellarFull','main2','projected2','stellarLens2','stellarFull2','bevelField','sceneLens','volumeVS','volumePixel','captionGlass','orbitVS','orbitGS','orbitMask','orbitQuad','orbitInk','maskedProjection','accretionProjection','windowSceneVS','windowScenePS','nativeMoteVS','nativeFieldVS','nativeDustVS','solarVS','solarPS','launchVS','launchPS','meteorVS','meteorPS')][string]$Entry='main')
+param([Parameter(Mandatory)][string]$Output,[ValidateSet('main','projected','stellarLens','stellarStandby','depositPS','moteVS','motePS','dustVS','dustPS','magneticVS','magneticPS','magneticOptimizedPS','magneticLookup','magneticMap','nebulaPS','stellarFull','main2','projected2','stellarLens2','stellarFull2','bevelField','sceneLens','volumeVS','volumePixel','captionGlass','orbitVS','orbitGS','orbitMask','orbitQuad','orbitInk','maskedProjection','accretionProjection','windowSceneVS','windowScenePS','nativeMoteVS','nativeFieldVS','nativeDustVS','solarVS','solarPS','launchVS','launchPS','meteorVS','meteorPS','filmCometPS','filmPulsarPS','filmNovaPS','filmDiamondPS','sceneFilmPS')][string]$Entry='main')
 $ErrorActionPreference = 'Stop'
 if (-not ('AstralBuild.GlassShaderCompiler' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -43,6 +43,7 @@ $source,$target=switch ($Entry) {
     'orbitGS' { 'OrbitalMesh.hlsl'; 'gs_4_0' }
     { $_ -in 'orbitMask','orbitInk' } { 'OrbitalMesh.hlsl'; 'ps_4_0' }
     { $_ -in 'nativeMoteVS','nativeFieldVS','nativeDustVS' } { 'SceneParticles.hlsl'; 'vs_4_0' }
+    { $_ -in 'filmCometPS','filmPulsarPS','filmNovaPS','filmDiamondPS' } { 'MilestoneFilm.hlsl'; 'ps_3_0' }
     'meteorVS' { 'Meteor.hlsl'; 'vs_4_0' }
     'meteorPS' { 'Meteor.hlsl'; 'ps_4_0' }
     'launchVS' { 'Launch.hlsl'; 'vs_4_0' }
@@ -50,6 +51,7 @@ $source,$target=switch ($Entry) {
     'solarVS' { 'SceneSolar.hlsl'; 'vs_4_0' }
     'solarPS' { 'SceneSolar.hlsl'; 'ps_4_0' }
     'windowSceneVS' { 'WindowScene.hlsl'; 'vs_4_0' }
+    'sceneFilmPS' { 'WindowScene.hlsl'; 'ps_4_0' }
     'windowScenePS' { 'WindowScene.hlsl'; 'ps_4_0' }
     'moteVS' { 'ParticleBatch.hlsl'; 'vs_4_0' }
     'motePS' { 'ParticleBatch.hlsl'; 'ps_4_0' }
@@ -75,6 +77,10 @@ if($source -eq 'WindowScene.hlsl'){
     $shared=$shared.Substring($shared.IndexOf('float4 transmitted('))
     $shared=$shared.Replace(': COLOR',': COLOR').Replace(' : COLOR','').Replace(':COLOR','').Replace(': COLOR','').Replace(' : TEXCOORD','').Replace(':TEXCOORD','')
     $merged=[IO.File]::ReadAllText($inputFile).Replace('// OPTICAL_FUNCTIONS',$shared)
+    if($Entry -eq 'sceneFilmPS'){
+        $film=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'MilestoneFilm.hlsl'))
+        $merged=$merged.Replace('// MILESTONE_FUNCTIONS',("#define MILESTONE_PASS 1" + [Environment]::NewLine + $film.Substring(0,$film.IndexOf('// WPF entries'))))
+    }
     $tmp=[IO.Path]::GetTempFileName()
     try{
         [IO.File]::WriteAllText($tmp,$merged,[Text.UTF8Encoding]::new($false))

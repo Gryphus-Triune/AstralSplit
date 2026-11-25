@@ -29,6 +29,9 @@ namespace AstralSplit
             photonOrbit = new RotateTransform(72), coronaOrbit=new RotateTransform(-24);
         bool orbitRunning;
         int? orbitRate;
+        const double ShadowPlateWidth=174;
+        // RenderBlackHoleArt.py bakes 108 source pixels per unit in its 840-pixel-wide plate.
+        const double ShadowArtUnit=108*ShadowPlateWidth/840;
         static readonly Lazy<BitmapSource> shadowTexture =
             new Lazy<BitmapSource>(() => StellarSkyArt.ReadImage("black-hole.png"));
         static readonly Lazy<BitmapSource> frontTexture =
@@ -67,8 +70,6 @@ namespace AstralSplit
             RenderOptions.SetBitmapScalingMode(blackHole, BitmapScalingMode.HighQuality);
             coreObject.Transform = corePlacement;
             coreObject.Children.Add(standbyBody);
-            standbyCrossLayer.Children.Add(standbyCrossImages);
-            coreObject.Children.Add(standbyCrossLayer);
             coreObject.Children.Add(blackHole);
             coreFrame.Children.Add(coreObject);
             InitializeAccretion();
@@ -78,9 +79,8 @@ namespace AstralSplit
             corona.Transform=coronaOrbit;
             using(var dc=corona.Open())dc.DrawImage(lensTexture.Value,new Rect(-59,-59,118,118));
             var texture=shadowTexture.Value;
-            const double width=174;
-            double height=width*texture.PixelHeight/texture.PixelWidth;
-            var plate=new Rect(-width/2,-height/2,width,height);
+            double height=ShadowPlateWidth*texture.PixelHeight/texture.PixelWidth;
+            var plate=new Rect(-ShadowPlateWidth/2,-height/2,ShadowPlateWidth,height);
             coronaShell.Transform=coronaScale;coronaShell.Children.Add(corona);jetSource.Children.Add(bipolarJets);
             using(var d=farDisk.Open()){
                 d.DrawDrawing(rearPlane);d.DrawDrawing(magneticRear);
@@ -107,7 +107,7 @@ namespace AstralSplit
                 d.DrawDrawing(coreHalo);d.DrawDrawing(afterglow);
                 d.Pop();d.DrawDrawing(dustBehind);d.DrawDrawing(coronaShell);d.DrawDrawing(backRing);d.DrawDrawing(rearDiskAfterimage);
                 d.DrawDrawing(observingRibbons.Rear);d.DrawDrawing(farMatter);
-                d.PushTransform(holeScale);d.DrawImage(texture,plate);d.DrawDrawing(crossImages);d.Pop();
+                d.PushTransform(holeScale);d.DrawImage(texture,plate);d.Pop();
                 d.DrawDrawing(frontRing);d.DrawDrawing(observingRibbons.Front);d.DrawDrawing(frontDiskAfterimage);d.DrawDrawing(dustAhead);
             }
             InitializeFormation();

@@ -23,5 +23,5 @@ if ($CudaBin) { $cudaArgs = @('--bin', $CudaBin) }
 & $Python (Join-Path $stagedSource 'CompileGalaxy.py') @cudaArgs
 if ($LASTEXITCODE -ne 0) { throw 'CUDA module build failed.' }
 & (Join-Path $stagedSource 'Build.ps1') -Output (Join-Path $stage 'AstralSplit.exe')
-& $Python (Join-Path $stagedSource 'PackagePortable.py') $stage (Join-Path $dist 'AstralSplit-Windows-x64-2.0.0.zip')
+& $Python (Join-Path $stagedSource 'PackagePortable.py') $stage (Join-Path $dist 'AstralSplit-Windows-x64-2.1.0.zip')
 if ($LASTEXITCODE -ne 0) { throw 'Portable release packaging failed.' }

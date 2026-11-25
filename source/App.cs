@@ -26,8 +26,8 @@ using Path = System.IO.Path;
 
 [assembly: System.Reflection.AssemblyTitle("星云分流")]
 [assembly: System.Reflection.AssemblyProduct("星云分流")]
-[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.1.0.0")]
 
 namespace AstralSplit
 {
@@ -372,6 +372,7 @@ namespace AstralSplit
         readonly Forms.NotifyIcon tray;
         readonly StellarTaskbarSweep taskbarSweep;
         readonly DispatcherTimer timer;
+        readonly DispatcherTimer workerTimer = new DispatcherTimer(DispatcherPriority.Normal);
         readonly Stopwatch startupAge = new Stopwatch();
         Task worker;
         EventWaitHandle stop;
@@ -391,7 +392,7 @@ namespace AstralSplit
         Task<bool> pendingSave = Task.FromResult(true);
         string[] committedChoices = new string[0];
         long choiceRevision;
-        DateTime nextList, nextNetwork, nextWorker;
+        DateTime nextList, nextNetwork;
         NetworkState network;
 
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -435,6 +436,7 @@ namespace AstralSplit
             LiquidLens.SetScene(sort.ContextMenu,Find<FrostedPane>("ListFrost"));
             SetSort(true);
             InitializePresentation();
+            BindMilestoneMenu();
             BindConnectionControls();
             BindVpnControls();
 
@@ -492,12 +494,13 @@ namespace AstralSplit
                 tray.Visible = false;
                 trayMenu.Dispose();
                 tray.Dispose();
+                workerTimer.Stop();
                 timer.Stop();
                 if (stop != null) { stop.Set(); stop.Dispose(); }
             };
+            workerTimer.Tick += (s, e) => PollWorker();
             timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(400) };
             timer.Tick += (s, e) => {
-                if (worker != null && DateTime.UtcNow >= nextWorker) PollWorker();
                 if (!Window.IsVisible || Window.WindowState == WindowState.Minimized) return;
                 CheckMilestone();
                 SampleStellarTraffic();
@@ -1095,7 +1098,6 @@ namespace AstralSplit
                 if (launched == null) return;
                 if (closed) return;
                 worker = launched;
-                nextWorker = DateTime.MinValue;
                 startupAge.Restart();
                 phase = "starting";
                 phaseDetail = null;
@@ -1175,7 +1177,6 @@ namespace AstralSplit
                     nextNetwork = DateTime.MinValue;
                     UpdateState();
                 }
-                nextWorker = DateTime.UtcNow.AddMilliseconds(phase == "active" && !stopping ? 1000 : 0);
                 return;
             }
 
@@ -1195,8 +1196,22 @@ namespace AstralSplit
             _ = Task.Run(() => TrimSessionHistory());
         }
 
+        void SyncWorkerPolling()
+        {
+            if (closed || worker == null)
+            {
+                workerTimer.Stop();
+                return;
+            }
+
+            var interval = phase == "active" && !stopping ? TimeSpan.FromSeconds(1) : TimeSpan.FromMilliseconds(150);
+            if (workerTimer.Interval != interval) workerTimer.Interval = interval;
+            if (!workerTimer.IsEnabled) workerTimer.Start();
+        }
+
         void UpdateState()
         {
+            SyncWorkerPolling();
             var astral = network == null ? null : network.Astral;
             var physical = network?.Physical4 ?? (UsingGenericVpn ? network?.Physical6 : null);
             bool ready = network != null && network.Ready && VpnPreferenceReady;
@@ -1267,8 +1282,9 @@ namespace AstralSplit
             else if (phase == "finishing" || worker != null)
             {
                 title = phase == "finishing" ? "正在结束分流" : "正在启用分流";
-                description = phase == "finishing" ? "正在做最后的清理…" : "正在准备你选的应用和线路…";
-                reason = phaseDetail;
+                description = phase == "finishing" ? "正在做最后的清理…" :
+                    String.IsNullOrWhiteSpace(phaseDetail) ? "正在准备你选的应用和线路…" : phaseDetail;
+                if (phase == "finishing") reason = phaseDetail;
             }
             else if (recovering)
             {

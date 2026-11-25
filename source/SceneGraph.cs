@@ -145,6 +145,16 @@ namespace AstralSplit
             if(g!=null && Rectangle(g,out var rect) && Axis(m)){clip.Intersect(Rect.Transform(rect,m));g=null;}
             if(!Valid(clip))return;
             if(NativeScrolling && !insideScroll && ScrollSurface(v,p,m,clip,alpha,opacity,fx,mask,g))return;
+            if(v is MilestoneFilm film && film.Procedural){
+                device.EnsureMilestoneProgram();
+                var quad=SceneDevice.Quad(p,film.Area,m,clip,0,Unit,alpha*opacity,24);
+                var basis=film.Basis;var frame=film.Frame;
+                quad.Constant(0,basis.X,basis.Y,basis.Z,basis.W);
+                quad.Constant(1,frame.X,frame.Y,frame.Z,frame.W);
+                quad.Constant(2,(int)film.Kind,film.Playing?1:0);
+                p.Draws.Add(quad);
+                return;
+            }
             if(v==sky?.NativeTransmission){
                 var area=new Rect(sky.RenderSize);
                 double density=Pixels(p,m);

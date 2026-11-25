@@ -37,7 +37,7 @@ foreach ($art in Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'StellarArt
 }
 $shaders=@{main='LiquidGlass';projected='ProjectedGlass';stellarLens='StellarLens';stellarFull='StellarFull';moteVS='MoteVertex';motePS='MotePixel';dustVS='DustVertex';dustPS='DustPixel';depositPS='DustExposure';nebulaPS='Volume'}
 $shaders += @{main2='LiquidGlass2';projected2='ProjectedGlass2';stellarLens2='StellarLens2';stellarFull2='StellarFull2';bevelField='BevelField'}
-foreach($i in 'nativeMoteVS','nativeFieldVS','nativeDustVS','solarVS','solarPS','launchVS','launchPS','meteorVS','meteorPS'){$shaders[$i]=$i}
+foreach($i in 'nativeMoteVS','nativeFieldVS','nativeDustVS','solarVS','solarPS','sceneFilmPS','filmCometPS','filmPulsarPS','filmNovaPS','filmDiamondPS','launchVS','launchPS','meteorVS','meteorPS'){$shaders[$i]=$i}
 $shaders.windowSceneVS='WindowSceneVertex'
 $shaders.windowScenePS='WindowScenePixel'
 $shaders.volumeVS='CompositionVertex'

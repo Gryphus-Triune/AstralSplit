@@ -97,6 +97,13 @@ namespace AstralSplit
         }
         internal bool LaunchFinished => device!=IntPtr.Zero && SceneLaunchFinished(device)!=0;
         internal void EndLaunch(){if(device!=IntPtr.Zero)SceneEndLaunch(device);}
+        bool milestoneReady;
+        internal void EnsureMilestoneProgram(){
+            if(milestoneReady)return;
+            var code=Load("sceneFilmPS");
+            Check(SceneProgram(device,4,vertex.Value,vertex.Value.Length,code,code.Length));
+            milestoneReady=true;
+        }
         internal SceneDevice(IntPtr hwnd,int w,int h,bool desktop){
             Width=w;Height=h;Check(SceneOpen(hwnd,desktop?1:0,w,h,vertex.Value,vertex.Value.Length,pixel.Value,pixel.Value.Length,out device));
             try{

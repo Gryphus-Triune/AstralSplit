@@ -244,6 +244,7 @@ namespace AstralSplit
             taskbarSweep.Stop();
             startupForegroundPending=false;
             exitInProgress=true;
+            CloseMilestoneMenu();
             surface.IsHitTestVisible=false;
             CancelPendingTaskbarMinimize();
             pendingTrayHide?.Abort();
@@ -298,7 +299,7 @@ namespace AstralSplit
         void PlayFlightTo(bool hiding,bool fromTray,Point? taskbarPoint,bool alreadyMinimizing=false)
         {
             if (exitInProgress) return;
-            if (hiding) startupForegroundPending=false;
+            if (hiding) { startupForegroundPending=false; CloseMilestoneMenu(); }
             var prepared=hiding?null:pendingReveal;
             if(!hiding)pendingReveal=null;
             

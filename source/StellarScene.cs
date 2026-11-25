@@ -77,15 +77,23 @@ namespace AstralSplit
                 d.DrawDrawing(markers); d.DrawDrawing(connectionSignals);
                 d.DrawDrawing(landingRings); d.DrawDrawing(coreFrame); d.DrawDrawing(observingNearApproaches); d.DrawDrawing(streamFront); d.DrawDrawing(infallLayer);
             }
+            // Both emission layers inherit the exact transforms of their source. The near disk,
+            // the opaque shadow and the seed are drawn in front of the emitted light.
+            var coronaPlacement=new ContainerVisual { Transform=corePlacement };
+            var seedTransform=new TransformGroup();
+            seedTransform.Children.Add(starScale);seedTransform.Children.Add(standbyScale);
+            stellarCoronaFilm.Transform=seedTransform;
+            diamondFilm.Transform=holeScale;
+            coronaPlacement.Children.Add(stellarCoronaFilm);coronaPlacement.Children.Add(diamondFilm);
             constellations.Children.Add(guides);
+            CoronaArtwork.Children.Add(coronaPlacement);constellations.Children.Add(CoronaArtwork);
             constellations.Children.Add(stars);
             constellations.Transform=mapShift;
             emittingStars.Transform=mapShift;
             var moving=new DrawingGroup{Transform=mapShift};
             moving.Children.Add(novaOrigin);moving.Children.Add(outsideFormation);moving.Children.Add(flight);
             foreground.Children.Add(interactionBounds);foreground.Children.Add(moving);foreground.Children.Add(survey);
-            Milestone.Transform=Milestone.ForegroundBlast.Transform=remnantShift;
-            foreground.Children.Add(Milestone.ForegroundBlast);
+            Milestone.Transform=remnantShift;
         }
 
         void SetInteractionBounds(double w,double h)
@@ -93,7 +101,6 @@ namespace AstralSplit
             var next = new Size(w,h);
             if(next == overlaySize)return;
             overlaySize=next;
-            Milestone.Surface=next;
             using(var d=interactionBounds.Open())d.DrawRectangle(Brushes.Transparent,null,new Rect(next));
             var clip = new RectangleGeometry(new Rect(next)); clip.Freeze(); foreground.ClipGeometry = clip;
             UpdateFormationClip();
@@ -109,7 +116,6 @@ namespace AstralSplit
                 ReleaseGestureForPhase();
             }
             if (wasLive != Live) {
-                ResetCaustic(finishStandbyFlash:Live);
                 SettleRivers(false);
                 if(!Live){DrainAccretion();ResetDiskTraffic();appRates.Clear();ClearConnections();}
                 else {ClearLights();SettleInfall();}
@@ -219,7 +225,7 @@ namespace AstralSplit
                 bounds.Width==viewport.Width && CoreScale==scale && (expansion!=chartExpansion || Math.Abs(bounds.Height-viewport.Height)<1.1);
             double oldBottom=viewport.Bottom;
             viewport=bounds;CoreScale=scale;chartExpansion=expansion;
-            Milestone.SetChart(bounds);
+            Milestone.SetChart(bounds,MilestoneCanvas);
             if(lastPointer.HasValue)Aim(lastPointer.Value);
             // When expanded details take vertical space, only the outer optical arcs can extend
             // behind the glass. Incoming grains on either side of the chart share this aperture.
@@ -419,7 +425,7 @@ namespace AstralSplit
             emittingStars.Children.Clear();rearAppSources.Children.Clear();
             markerLayout.Clear();chartDirty=false;ClearConnections();chart.Children.Clear();riverBack.Children.Clear();riverFront.Children.Clear();
             markers.Children.Clear();positions.Clear();ClearLights();
-            ClearSurvey();deepSky.Children.Clear();ClearObservingStars();
+            ClearSurvey();deepSky.Children.Clear();cometFilm.Clear();pulsarFilm.Clear();stellarCoronaFilm.Clear();diamondFilm.Clear();ClearObservingStars();
             coreFrame.Opacity=0;
             StarMapChanged?.Invoke();
         }
@@ -448,7 +454,7 @@ namespace AstralSplit
             }
             var at=GateCaptionLocation();gateCaptionPosition.X=at.X;gateCaptionPosition.Y=at.Y;
             DrawSurvey();
-            if(stage>0)DrawDeepSky(flightClock.Elapsed.TotalSeconds);
+            if(HasDeepSky)DrawDeepSky(flightClock.Elapsed.TotalSeconds);
             if(observing)DrawObservingSky(flightClock.Elapsed.TotalSeconds);
             UpdateTrafficLights();
             StarMapChanged?.Invoke();

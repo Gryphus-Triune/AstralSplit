@@ -97,6 +97,7 @@ struct WindowScene {
     volatile LONG parked=0;
     struct OrbitProgram {std::vector<BYTE> bytes;int sizes[5];float samples[404];};
     std::shared_ptr<const OrbitProgram> orbitProgram;
+    Ref<ID3D11PixelShader> milestonePS;
     Ref<ID3D11VertexShader> particleVS[4];Ref<ID3D11PixelShader> particlePS[4];Ref<ID3D11Buffer> particleCamera;
     Ref<ID3D11Device> gpu;Ref<ID3D11DeviceContext> dc;Ref<ID3D11DeviceContext1> offsets;
     HWND owner=nullptr;Ref<IDXGIAdapter1> displayAdapter;
@@ -152,6 +153,7 @@ struct WindowScene {
         if(latency)CloseHandle(latency);if(stop)CloseHandle(stop);if(dirty)CloseHandle(dirty);if(ready)CloseHandle(ready);
     }
     HRESULT SetProgram(int kind,const void* v,unsigned vl,const void* p,unsigned pl){
+        if(kind==4)return milestonePS.p?S_OK:gpu->CreatePixelShader(p,pl,nullptr,&milestonePS.p);
         if(kind<0||kind>3||particleVS[kind].p)return E_INVALIDARG;
         TRY(gpu->CreateVertexShader(v,vl,nullptr,&particleVS[kind].p));TRY(gpu->CreatePixelShader(p,pl,nullptr,&particlePS[kind].p));
         if(!particleCamera.p){D3D11_BUFFER_DESC b={};b.ByteWidth=32;b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;TRY(gpu->CreateBuffer(&b,nullptr,&particleCamera.p));}
@@ -443,7 +445,7 @@ struct WindowScene {
                     else if(id<0){word(signatures[-1-id]);motion=motion||animated[-1-id];
                         if(scrollPass[-1-id])scrollPass[pass.slot]=true;}else word(0);
                 }
-                word(q.material);motion=motion || q.span[3]!=0 || (q.material==7 && q.param[5]!=0) ||
+                word(q.material);motion=motion || q.span[3]!=0 || (q.material==7 && q.param[5]!=0) || (q.material==24 && q.param[9]!=0) ||
                     ((q.material==20 || q.material==21) && q.param[1]!=0);
                 for(unsigned n=0;n<40;n++){UINT32 bits;std::memcpy(&bits,((const BYTE*)q.origin)+n*4,4);word(bits);}
                 for(int k:q.scissor)word(k);
@@ -676,7 +678,7 @@ struct WindowScene {
                 const auto stage=timeStages?DrawStage(passStage,q.material):passStage;
                 while(end<limit){
                     const auto& r=next->draws[end];const auto& other=next->inputs[end];
-                    if(q.material==20 || r.material==20 || std::memcmp(q.scissor,r.scissor,sizeof(q.scissor)) ||
+                    if(q.material==20 || r.material==20 || ((q.material==24)!=(r.material==24)) || std::memcmp(q.scissor,r.scissor,sizeof(q.scissor)) ||
                        View(r.image,other[0])!=inputs[0] || View(r.secondary,other[1])!=inputs[1] || View(r.atlas,other[2])!=inputs[2] ||
                        (timeStages && DrawStage(passStage,r.material)!=stage))break;
                     ++end;
@@ -690,6 +692,10 @@ struct WindowScene {
                     dc->VSSetShader(particleVS[3].p,nullptr,0);dc->PSSetShader(particlePS[3].p,nullptr,0);
                     dc->DrawInstanced(66,section<0?33:section==3?1:29,0,0);
                     dc->VSSetShader(vs.p,nullptr,0);dc->PSSetShader(ps.p,nullptr,0);
+                }else if(q.material==24){
+                    dc->PSSetShader(milestonePS.p,nullptr,0);
+                    dc->DrawInstanced(4,end-i,0,0);
+                    dc->PSSetShader(ps.p,nullptr,0);
                 }else dc->DrawInstanced(4,end-i,0,0);
                 i=end-1;++submissions;
             }

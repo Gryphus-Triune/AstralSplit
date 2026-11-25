@@ -10,6 +10,7 @@ struct DrawRecord {
 };
 cbuffer Draw : register(b0){DrawRecord bank[256];};
 static uint drawIndex;
+// MILESTONE_FUNCTIONS
 #define originX bank[drawIndex].posX
 #define axisYuv bank[drawIndex].posY
 #define spanMode bank[drawIndex].uvMode
@@ -43,6 +44,14 @@ Varying windowSceneVS(uint id:SV_VertexID,uint instance:SV_InstanceID){
     }
     v.uv=corner;v.index=instance;return v;
 }
+#ifdef MILESTONE_PASS
+float4 sceneFilmPS(Varying v):SV_Target{
+    drawIndex=v.index;
+    float4 frame=params[1];
+    frame.x+=sincePublish.x*params[2].y;
+    return milestoneFilm(params[0].xy+v.uv*params[0].zw,frame,params[2].x)*spanMode.z;
+}
+#endif
 // OPTICAL_FUNCTIONS
 float4 windowScenePS(Varying v):SV_Target{
     drawIndex=v.index;

@@ -46,7 +46,7 @@ namespace AstralSplit
             SizeStellarViewport();
             PresentTraffic(null);
             Window.IsVisibleChanged += (s,e) => { if (!Window.IsVisible){ResetStellarTraffic();sky.Milestone.Settle();} else nextMilestone=DateTime.MinValue; };
-            Window.StateChanged += (s,e) => { if (Window.WindowState == WindowState.Minimized && !ProjectingMinimizedWindow) ResetStellarTraffic(); };
+            Window.StateChanged += (s,e) => { if (Window.WindowState == WindowState.Minimized && !ProjectingMinimizedWindow){ResetStellarTraffic();sky.Milestone.Settle();} };
             Window.Closed += (s,e) => { StopMapLayout(); sky.ChartRevealChanged -= ApplyStellarHeight; };
         }
 

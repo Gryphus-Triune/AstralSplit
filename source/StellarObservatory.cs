@@ -27,6 +27,7 @@ namespace AstralSplit
             OpacityMask=new RadialGradientBrush(Colors.White,Colors.Transparent){RadiusX=.19,RadiusY=.27} };
         static readonly Lazy<Task<BitmapSource>> ionizedTexture=new Lazy<Task<BitmapSource>>(
             ()=>Task.Run(()=>StellarSkyArt.ReadImage("ionized-nebula.png")));
+        bool ionizedRequested;
         readonly Dictionary<string,OrbitalStar> orbitalStars=new Dictionary<string,OrbitalStar>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string,string> observingCatalog=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string,string> surveyCatalog=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
@@ -40,6 +41,14 @@ namespace AstralSplit
         double standbyRippleAt=double.NegativeInfinity;
         const double StandbyRippleDuration=.48;
         int stage,fieldFallback=-1;
+        const double CometDuration=6.6;
+        readonly MilestoneFilm cometFilm=new MilestoneFilm(FilmKind.Comet),pulsarFilm=new MilestoneFilm(FilmKind.Pulsar),
+            stellarCoronaFilm=new MilestoneFilm(FilmKind.Corona),diamondFilm=new MilestoneFilm(FilmKind.Diamond);
+        double cometUnlocked,pulsarUnlocked,diamondUnlocked;
+        MilestoneReward previewReward;
+        double previewStarted;
+        bool HasDeepSky => stage>0 || (previewReward!=MilestoneReward.None && previewReward!=MilestoneReward.Supernova);
+        bool HasIonizedNebula => stage>=(int)MilestoneReward.IonizedNebula || previewReward==MilestoneReward.IonizedNebula;
         TimeSpan observatoryFrame=TimeSpan.MinValue;
         Vector windowLag,windowVelocity;
         string rowAim,starAim,chartSearch="";
@@ -103,14 +112,16 @@ namespace AstralSplit
         }
         void SyncObservatory(){
             if(Live || !CanMoveMatter)standbyRippleAt=double.NegativeInfinity;
+            double now=flightClock.Elapsed.TotalSeconds;
+            bool deepSkyMoving=HasDeepSky && (stage>0 || previewReward!=MilestoneReward.Comet || now-previewStarted<CometDuration);
             bool active=running && !disposed && !highContrast && !viewport.IsEmpty && SystemParameters.ClientAreaAnimation &&
-                (Live || observing || stage>0 || evaporationRunning || flightClock.Elapsed.TotalSeconds-Math.Max(terminalRippleAt,foldingRippleAt)<.6 ||
-                 flightClock.Elapsed.TotalSeconds-standbyRippleAt<StandbyRippleDuration ||
+                (Live || observing || deepSkyMoving || evaporationRunning || now-Math.Max(terminalRippleAt,foldingRippleAt)<.6 ||
+                 now-standbyRippleAt<StandbyRippleDuration ||
                  windowLag.LengthSquared>.001 || windowVelocity.LengthSquared>.01);
             if(active==observatoryFrames)return;
             observatoryFrames=active;
             if(active){
-                lastObservatoryTime=flightClock.Elapsed.TotalSeconds;observatoryFrame=TimeSpan.MinValue;
+                lastObservatoryTime=now;observatoryFrame=TimeSpan.MinValue;
                 UiFrames.Rendering+=ObservatoryFrame;
             }else{
                 UiFrames.Rendering-=ObservatoryFrame;
@@ -148,7 +159,7 @@ namespace AstralSplit
                 energy=StandbyOpticalScale*Math.Sin(Math.PI*u)*(1-.45*u);
             }
             if(energy>=.005 || waveOnGlass){GlassWave?.Invoke(ProjectedGate,radius,energy);waveOnGlass=energy>=.005;}
-            if(stage>0)DrawDeepSky(now);
+            if(HasDeepSky)DrawDeepSky(now);
             if(observing && !observationCameraMoving)PaintObservingSky(now,true);
             SyncObservatory();
         }
@@ -352,11 +363,33 @@ namespace AstralSplit
             }
         }
         internal void SetDeepStage(int value){
-            if(stage==value)return;stage=value;
-            if(stage>=3 && ionizedPlate.ImageSource==null)LoadIonizedNebula();
+            double now=flightClock.Elapsed.TotalSeconds;
+            bool changed=stage!=value;
+            if(stage<1 && value>=1)cometUnlocked=now;
+            if(stage<2 && value>=2)pulsarUnlocked=now;
+            if(stage<5 && value>=5)diamondUnlocked=now;
+            stage=value;
+            if(changed)RefreshDeepSky();
+        }
+        internal void PreviewMilestone(MilestoneReward reward){
+            if(reward==MilestoneReward.None && previewReward==MilestoneReward.None)return;
+            previewReward=reward;
+            previewStarted=flightClock.Elapsed.TotalSeconds;
+            if(reward==MilestoneReward.Supernova)Milestone.Preview(CanMoveMatter);
+            else Milestone.ClearPreview();
+            RefreshDeepSky();
+        }
+        internal void RefreshMilestonePreview(){
+            if(!SystemParameters.ClientAreaAnimation && Milestone.Bursting)Milestone.Settle();
+            if(stage!=0 || previewReward!=MilestoneReward.None)RefreshDeepSky();
+        }
+        void RefreshDeepSky(){
+            if(HasIonizedNebula && ionizedPlate.ImageSource==null)LoadIonizedNebula();
             DrawDeepSky(flightClock.Elapsed.TotalSeconds);SyncObservatory();
         }
         async void LoadIonizedNebula(){
+            if(ionizedRequested)return;
+            ionizedRequested=true;
             try{
                 var image=await ionizedTexture.Value.ConfigureAwait(false);
                 if(Dispatcher.HasShutdownStarted)return;
@@ -364,91 +397,79 @@ namespace AstralSplit
                     if(disposed || ionizedPlate.ImageSource!=null)return;
                     ionizedPlate.ImageSource=image;
                     ionizedLight.Children.Add(ionizedPlate);
-                    if(stage>=3)DrawDeepSky(flightClock.Elapsed.TotalSeconds);
+                    double now=flightClock.Elapsed.TotalSeconds;
+                    if(previewReward==MilestoneReward.IonizedNebula)previewStarted=now;
+                    if(HasIonizedNebula)DrawDeepSky(now);
                 },DispatcherPriority.Render);
             }catch(Exception ex) when(ex is OperationCanceledException || ex is System.IO.IOException ||
                 ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException){ }
         }
-        sealed class MilestoneLamp
-        {
-            internal readonly DrawingGroup Art=new DrawingGroup();
-            internal readonly TranslateTransform Position=new TranslateTransform();
-            readonly GeometryDrawing halo, inner, rayX, rayY, core, center;
-            readonly Color color;
-            internal MilestoneLamp(Color color,double radius){
-                this.color=color;Art.Transform=Position;
-                halo=Ellipse(radius*7.5);inner=Ellipse(radius*3.5);
-                rayX=new GeometryDrawing(null,null,new LineGeometry(new Point(-radius*2.9,0),new Point(radius*2.9,0)));
-                rayY=new GeometryDrawing(null,null,new LineGeometry(new Point(0,-radius*2.3),new Point(0,radius*2.3)));
-                core=Ellipse(radius);center=Ellipse(radius*.46);
-                foreach(var node in new[]{halo,inner,rayX,rayY,core,center}){node.Geometry.Freeze();Art.Children.Add(node);}
-            }
-            static GeometryDrawing Ellipse(double r){return new GeometryDrawing(null,null,new EllipseGeometry(new Point(),r,r));}
-            internal void LightAt(Point at,double power){
-                Position.X=at.X;Position.Y=at.Y;
-                halo.Brush=Glow(A(color,power*.68));inner.Brush=Glow(A(color,power*.83));
-                rayX.Pen=rayY.Pen=Stroke(color,.61*power,.62);core.Brush=Ink(color,power);center.Brush=Ink(Colors.White,.92*power);
-            }
-        }
-        readonly DrawingGroup cometLayer=new DrawingGroup(),cometBody=new DrawingGroup(),pulsarLayer=new DrawingGroup(),diamondLayer=new DrawingGroup(),gasLayer=new DrawingGroup();
-        readonly TranslateTransform cometAt=new TranslateTransform();
-        readonly LineGeometry iceLine=new LineGeometry(),dustLine=new LineGeometry(),pulseLine=new LineGeometry();
-        readonly EllipseGeometry diamondCircle=new EllipseGeometry();
-        MilestoneLamp pulsarLamp,diamondLamp;
-        GeometryDrawing pulseStroke;
+        readonly DrawingGroup gasLayer=new DrawingGroup();
         bool deepBuilt;
-        int deepStage=-1;
         void BuildDeepSky(){
-            if(deepBuilt)return;deepBuilt=true;
-            cometLayer.Transform=cometShift;cometBody.Transform=cometAt;cometLayer.Children.Add(cometBody);
-            cometBody.Children.Add(new GeometryDrawing(null,Stroke(Color.FromRgb(145,203,255),.68,1),iceLine));
-            cometBody.Children.Add(new GeometryDrawing(null,Stroke(fieldGold,.43,1.4),dustLine));
-            cometBody.Children.Add(new GeometryDrawing(Glow(Colors.White),null,new EllipseGeometry(new Point(),5,5)));
-            pulsarLayer.Transform=pulsarShift;diamondLayer.Transform=mapShift;gasLayer.Transform=gasShift;
-            pulsarLamp=new MilestoneLamp(fieldBlue,1.4);diamondLamp=new MilestoneLamp(Colors.Bisque,1.8);
-            pulsarLayer.Children.Add(pulsarLamp.Art);pulseStroke=new GeometryDrawing(null,null,pulseLine);pulsarLayer.Children.Add(pulseStroke);
-            diamondLayer.Children.Add(new GeometryDrawing(null,Stroke(fieldGold,.38,.85),diamondCircle));diamondLayer.Children.Add(diamondLamp.Art);
+            if(deepBuilt)return;
+            deepBuilt=true;gasLayer.Transform=gasShift;
             var baseGas=new DrawingGroup{Opacity=.70};baseGas.Children.Add(ionizedPlate);gasLayer.Children.Add(baseGas);gasLayer.Children.Add(ionizedLight);
         }
         void DrawDeepSky(double now){
-            int level=viewport.IsEmpty || highContrast?0:stage;
-            if(level==0 && deepStage<=0){deepStage=0;return;}
-            BuildDeepSky();
-            if(deepStage!=level){
-                deepStage=level;deepSky.Children.Clear();
-                if(level>=3)deepSky.Children.Add(gasLayer);
-                if(level>=1)deepSky.Children.Add(cometLayer);
-                if(level>=2)deepSky.Children.Add(pulsarLayer);
-                if(level>=5)deepSky.Children.Add(diamondLayer);
-            }
-            if(level==0)return;
-            var gate=GateCenter;double w=viewport.Width,h=viewport.Height;
+            var field=MilestoneCanvas;
+            bool enabled=!viewport.IsEmpty && !field.IsEmpty && !highContrast;
+            bool showGas=enabled && HasIonizedNebula;
+            bool showComet=enabled && (stage>=(int)MilestoneReward.Comet || previewReward==MilestoneReward.Comet);
+            bool showPulsar=enabled && (stage>=(int)MilestoneReward.Pulsar || previewReward==MilestoneReward.Pulsar);
+            bool showDiamond=enabled && (stage>=(int)MilestoneReward.DiamondRing || previewReward==MilestoneReward.DiamondRing);
+            if(showGas && deepSky.Children.Count==0){BuildDeepSky();deepSky.Children.Add(gasLayer);}
+            if(!showGas && deepSky.Children.Count!=0)deepSky.Children.Clear();
+            if(!showComet)cometFilm.Clear();
+            if(!showPulsar)pulsarFilm.Clear();
+            if(!showDiamond){stellarCoronaFilm.Clear();diamondFilm.Clear();}
+            if(!enabled){SyncMilestoneGlass(field,false,false);return;}
+            double w=viewport.Width,h=viewport.Height;
+            double age=now-previewStarted;
+            bool animatePreview=CanMoveMatter;
             var image=ionizedPlate.ImageSource as BitmapSource;
-            if(level>=3 && image!=null){
+            if(showGas && image!=null){
                 double aspect=(double)image.PixelWidth/image.PixelHeight;
-                double width=Math.Min(observing?530:300,Math.Min(w*.41,h*.74*aspect));
-                var area=new Rect(viewport.X+w*.035,viewport.Y+h*(observing?.16:.11),width,width/aspect);
+                double width=Math.Max(field.Width,field.Height*aspect),height=width/aspect;
+                var area=new Rect(field.X+(field.Width-width)/2,field.Y+(field.Height-height)/2,width,height);
                 if(ionizedPlate.Rect!=area)ionizedPlate.Rect=area;
-                double v=SystemParameters.ClientAreaAnimation?.5-.5*Math.Cos(now*(2*Math.PI/19)):.5;
+                bool preview=previewReward==MilestoneReward.IonizedNebula;
+                gasLayer.Opacity=preview && animatePreview && stage<(int)MilestoneReward.IonizedNebula?UiMotion.Unit(age/.24):1;
+                double v=(preview?animatePreview:SystemParameters.ClientAreaAnimation)?
+                    .5-.5*Math.Cos((preview?age:now)*(2*Math.PI/19)):.5;
                 var center=new Point(.445+.31*v,.64-.29*v);var mask=(RadialGradientBrush)ionizedLight.OpacityMask;
                 if(mask.Center!=center)mask.Center=mask.GradientOrigin=center;
             }
-            double comet=(now+1.3)%23;
-            if(comet<3.2){
-                double u=comet/3.2;var at=new Point(viewport.X+w*(.10+.72*u),viewport.Y+h*(.26+.33*u-.19*u*u));
-                var away=at-gate;cometBody.Opacity=away.Length>.01?Math.Sin(Math.PI*u):0;
-                if(cometBody.Opacity>0){away.Normalize();cometAt.X=at.X;cometAt.Y=at.Y;
-                    iceLine.EndPoint=(Point)(away*49);dustLine.EndPoint=(Point)(away*27-new Vector(14,7));}
-            }else if(cometBody.Opacity!=0)cometBody.Opacity=0;
-            if(level>=2){
-                var at=new Point(viewport.X+w*.21,viewport.Y+h*.26);double pulse=.22+.72*Math.Pow(.5+.5*Math.Cos(now*2.7),15);
-                pulsarLamp.LightAt(at,pulse);var ray=new Vector(10,-3)*pulse;
-                pulseStroke.Pen=Stroke(fieldBlue,.31*pulse,.8);pulseLine.StartPoint=at-ray;pulseLine.EndPoint=at+ray;
+            if(showComet){
+                double t=(now-cometUnlocked)%23;
+                if(previewReward==MilestoneReward.Comet && (age<CometDuration || stage<1))t=age;
+                if(!animatePreview)t=3.77;
+                double unit=Math.Min(w*.58,Math.Max(218,h*.80));
+                if(t<CometDuration)cometFilm.Show(new Point(field.X+field.Width*.5,field.Y+field.Height*.5),unit,field,t,1,animatePreview);
+                else cometFilm.Clear();
             }
-            if(level>=5){
-                double r=(Live?35:14)*CoreScale;diamondCircle.Center=gate;diamondCircle.RadiusX=diamondCircle.RadiusY=r;
-                diamondLamp.LightAt(gate+new Vector(.78*r,-.626*r),.69+.24*Math.Cos(now*1.2));
+            if(showPulsar){
+                double unit=Math.Min(w*.22,Math.Max(79,h*.55));
+                var center=new Point(viewport.X+w*.21+.018*unit,viewport.Y+h*.30-.008*unit);
+                double t=previewReward==MilestoneReward.Pulsar?age:now-pulsarUnlocked;
+                pulsarFilm.Show(center,unit,field,animatePreview?t:2.18,1,animatePreview);
             }
+            if(showDiamond){
+                double t=animatePreview?(previewReward==MilestoneReward.DiamondRing?age:now-diamondUnlocked):0;
+                PaintCorona(stellarCoronaFilm,48,starScale.ScaleX*standbyScale.ScaleX,seedStar.Opacity*standbyBody.Opacity,t,animatePreview);
+                PaintCorona(diamondFilm,4*ShadowArtUnit,holeScale.ScaleX,blackHole.Opacity,t,animatePreview);
+            }
+            SyncMilestoneGlass(field,(showGas && image!=null) || !cometFilm.Area.IsEmpty ||
+                !pulsarFilm.Area.IsEmpty || !Milestone.Area.IsEmpty,showDiamond);
+        }
+
+        void PaintCorona(MilestoneFilm film,double unit,double bodyScale,double opacity,double t,bool animate){
+            double scale=CoreScale*bodyScale;
+            if(opacity<=0 || scale<=0){film.Clear();return;}
+            var field=MilestoneCanvas;var gate=GateCenter;
+            var local=new Rect((field.X-gate.X)/scale,(field.Y-gate.Y)/scale,field.Width/scale,field.Height/scale);
+            film.Show(new Point(),unit,local,t,scale,animate);
+            if(film.Opacity!=opacity)film.Opacity=opacity;
         }
         double observationBlend;
         void ShowHomeChart(double opacity){
@@ -467,7 +488,7 @@ namespace AstralSplit
             observing=value;
             if(changed){
                 foldingRippleAt=flightClock.Elapsed.TotalSeconds;
-                ClearLights(Live && CanMoveMatter);ClearSurvey();ResetCaustic();
+                ClearLights(Live && CanMoveMatter);ClearSurvey();
                 if(!value)ClearObservingStars();
             }
             BlendObservation(blend);
@@ -479,7 +500,7 @@ namespace AstralSplit
         internal void SetObservationCatalog(IEnumerable<KeyValuePair<string,string>> apps){
             if(Replace(observingCatalog,Catalog(apps)) && observing){
                 foreach(string key in orbitalStars.Keys.Where(k=>!observingCatalog.ContainsKey(k)).ToArray()){
-                    var star=orbitalStars[key];ForgetSource(star);
+                    var star=orbitalStars[key];
                     observingSky.Children.Remove(star.Art);observingNearApproaches.Children.Remove(star.Near);orbitalStars.Remove(key);
                 }
                 DrawObservingSky(flightClock.Elapsed.TotalSeconds);UpdateTrafficLights();
@@ -531,7 +552,6 @@ namespace AstralSplit
             }
         }
         void ClearObservingStars(){
-            foreach(var star in orbitalStars.Values)ForgetSource(star);
             observingSky.Children.Clear();observingNearApproaches.Children.Clear();observingRibbons.Clear();orbitalStars.Clear();
         }
         // Configuration and traffic can both change several times before WPF presents a frame.
@@ -546,7 +566,6 @@ namespace AstralSplit
                 }
                 appRates.TryGetValue(item.Key,out double rate);
                 star.Update(viewport,gate,CoreScale,now,AppInk(item.Key),rate,Live?riverProgress:0,diskAttitude);
-                if(LensEventReady)TraceSource(star,MapToScreen(star.Channel.Center),AppInk(item.Key));
             }
             observingRibbons.Draw(orbitalStars.Values,Live?riverProgress:0,CoreScale,diskAttitude,
                 renderFrame && !observationCameraMoving && observationBlend>=1?this:null,MapToScreen(gate),flowBatch);

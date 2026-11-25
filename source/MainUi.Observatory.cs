@@ -165,7 +165,7 @@ namespace AstralSplit
             observatoryButton.IsEnabled=zen || !contrastTheme;
             observingInput.Visibility=Visibility.Visible;
             foreach(var part in folding)part.IsHitTestVisible=false;
-            if(value){sky.Inspect(null);sky.AimFromRow(null,new Point());UpdateStellarApplications();}
+            if(value){CloseMilestoneMenu();sky.Inspect(null);sky.AimFromRow(null,new Point());UpdateStellarApplications();}
             if(Window.IsActive && Window.IsVisible)observatoryButton.Focus();
             StartZenClock();
         }

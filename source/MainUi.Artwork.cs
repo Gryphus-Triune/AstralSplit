@@ -44,6 +44,9 @@ namespace AstralSplit
             surface.PreviewMouseMove += (s,e) => sky.Aim(e.GetPosition(sky));
             surface.MouseLeave += (s,e) => sky.CenterAim();
             var skyInput = Find<Border>("SkyInput");
+            skyInput.AddHandler(UIElement.PreviewMouseDownEvent,new MouseButtonEventHandler((s,e) => {
+                if (e.ChangedButton==MouseButton.Left && search.IsKeyboardFocusWithin) skyInput.Focus();
+            }),true);
             BindSkyClicks(skyInput,sky);
             var dismissHint = BindStarHover(skyInput,sky,Find<Border>("StarHoverCard"),Find<TextBlock>("StarHoverName"),Find<TextBlock>("StarHoverStatus"));
             Window.Deactivated += (s,e) => dismissHint();

@@ -31,6 +31,20 @@ namespace AstralSplit
         readonly DrawingGroup rimStarlight=new DrawingGroup();
         internal Drawing RimStarlight { get { return rimStarlight; } }
         readonly List<ContainerVisual> lightViews=new List<ContainerVisual>();
+        readonly DrawingGroup glassMilestones=new DrawingGroup(),glassCorona=new DrawingGroup();
+        Rect rewardGlassBounds=Rect.Empty;
+        bool rewardsOnGlass,coronaOnGlass;
+        void SyncMilestoneGlass(Rect field,bool rewards,bool corona){
+            if(rewards==rewardsOnGlass && corona==coronaOnGlass &&
+                (field==rewardGlassBounds || (!rewards && !corona)))return;
+            rewardGlassBounds=field;rewardsOnGlass=rewards;coronaOnGlass=corona;
+            using(var dc=glassMilestones.Open()){
+                if(rewards && !field.IsEmpty)dc.DrawRectangle(LiveView(MilestoneArtwork,field),null,field);
+            }
+            using(var dc=glassCorona.Open()){
+                if(corona && !field.IsEmpty)dc.DrawRectangle(LiveView(CoronaArtwork,field),null,field);
+            }
+        }
         readonly Dictionary<ContainerVisual,SkyAtlas> lightAtlases=new Dictionary<ContainerVisual,SkyAtlas>();
         DispatcherTimer frostResize;
         ImageDrawing lastFrostBase;
@@ -72,6 +86,11 @@ namespace AstralSplit
             using(var dc=scanView.RenderOpen())dc.DrawDrawing(frostSweep);
             var nearby=new ContainerVisual {Transform=close.Slide};
             viewport.Children.Add(ribbonView);viewport.Children.Add(scanView);viewport.Children.Add(nearby);
+            var emission=new DrawingVisual{Opacity=.72};
+            using(var dc=emission.RenderOpen()){
+                dc.DrawDrawing(glassMilestones);dc.PushTransform(mapShift);dc.DrawDrawing(glassCorona);dc.Pop();
+            }
+            viewport.Children.Add(emission);
             lightViews.Add(viewport);
             RefreshGlassStars(nearby);
         }

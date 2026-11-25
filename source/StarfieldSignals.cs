@@ -35,10 +35,6 @@ namespace AstralSplit
             if (!running || disposed || highContrast || !IsVisible || !SystemParameters.ClientAreaAnimation ||
                 !new Rect(RenderSize).Contains(point)) return null;
             var lights = clickStars.Art.Children;
-            if(LensEventReady){
-                Vector offsetToGate=(point-ProjectedGate)/Math.Max(.01,LensEventScale);
-                if(offsetToGate.Length<2.9 || Math.Abs(offsetToGate.Length-35)<1.7)FlashCross(offsetToGate,Colors.AliceBlue);
-            }
             // Leave the new star at the pointer. A previous flash at the same
             // spot drifts just far enough for another press to read as a new star.
             for (int i=lights.Count-1;i>=0;i--) {

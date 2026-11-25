@@ -65,12 +65,19 @@ namespace AstralSplit
         internal bool AmbientRunning { get { return running; } }
         internal bool WaveRunning { get { return waving; } }
         internal bool IsTrackingPointer { get { return parallaxAttached; } }
+        // Overscan covers the existing milestone and camera parallax at all four edges.
+        internal Rect MilestoneCanvas {get{
+            var size=RenderSize;
+            return size.Width>0 && size.Height>0?new Rect(-16,-16,size.Width+32,size.Height+32):Rect.Empty;
+        }}
+        internal readonly ContainerVisual MilestoneArtwork=new ContainerVisual(),CoronaArtwork=new ContainerVisual();
 
         public StarfieldLayer()
         {
             visuals = new VisualCollection(this) { scene };
             IsHitTestVisible = false;
             ClipToBounds = true;
+            cometFilm.Transform=cometShift;pulsarFilm.Transform=pulsarShift;
             InitializeStellar();
             InitializeStarLens();
             var cloudLayer=new DrawingVisual();
@@ -80,7 +87,8 @@ namespace AstralSplit
             var unselected=new DrawingVisual{Transform=mapShift};
             using(var dc=unselected.RenderOpen())dc.DrawDrawing(rearAppSources);
             foreach(var layer in new ContainerVisual[]{backdrop,atmosphere,lower})compositionBase.Children.Add(layer);
-            foreach(var layer in new ContainerVisual[]{galaxy,sweep,Milestone,rewards,starDepth,unselected})compositionUpper.Children.Add(layer);
+            foreach(var layer in new ContainerVisual[]{rewards,Milestone,pulsarFilm,cometFilm})MilestoneArtwork.Children.Add(layer);
+            foreach(var layer in new ContainerVisual[]{galaxy,sweep,MilestoneArtwork,starDepth,unselected})compositionUpper.Children.Add(layer);
             naturalSky.Children.Add(compositionBase);naturalSky.Children.Add(cloudLayer);naturalSky.Children.Add(compositionUpper);
             straightSky.Children.Add(naturalSky);
             localStraight.Children.Add(straightSky);transmittedSky.Children.Add(localStraight);straightTiles.Opacity=0;transmittedSky.Children.Add(straightTiles);transmittedSky.Children.Add(lensPatch);
@@ -248,7 +256,7 @@ namespace AstralSplit
         {
             bool first = atlas == null;
             DetachCycles(); StopMeteor();
-            atlas = result;ResetCaustic();
+            atlas = result;
             var region = new Rect(-SkyAtlas.Padding,-SkyAtlas.Padding,result.Width+2*SkyAtlas.Padding,result.Far.Height);
             for (int i=0;i<galaxyTints.Length;i++)
                 using (var dc=galaxyTints[i].Open()) dc.DrawImage(result.TintImages[i],BandBounds);
@@ -323,6 +331,8 @@ namespace AstralSplit
             double w = ActualWidth, h = ActualHeight;
             if (w < 1 || h < 1) return;
             SetInteractionBounds(w,h);
+            Milestone.SetChart(viewport,MilestoneCanvas);
+            DrawDeepSky(flightClock.Elapsed.TotalSeconds);
             LayoutStarLens();
             double normalEdge=Math.Min(h,headerHeight);
             previewPhotos.Clear();
@@ -463,7 +473,7 @@ namespace AstralSplit
                 {
                     foreach (var clock in ambient) clock.Controller.Pause();
                     foreach (var clock in scan) clock.Controller.Pause();
-                    ResetCaustic();StopWave(false); StopMeteor(); ClearClickStars(); StopTracking(!SystemParameters.ClientAreaAnimation);
+                    StopWave(false); StopMeteor(); ClearClickStars(); StopTracking(!SystemParameters.ClientAreaAnimation);
                     SettleApplications();
                     if (!SystemParameters.ClientAreaAnimation || highContrast || (RenderCapability.Tier >> 16) < 2 ||
                         RenderOptions.ProcessRenderMode == RenderMode.SoftwareOnly) SetState(state,false,new Point());
@@ -633,7 +643,7 @@ namespace AstralSplit
             }
             ChangeAttitude();
             Translate(distant,FarTravel); Translate(middle,MiddleTravel); Translate(lower,MiddleTravel); Translate(close,NearTravel);
-            AlignBeacons();TrackBackgroundSources();
+            AlignBeacons();
             Translate(galaxy,GalaxyTravel); Translate(sweep,GalaxyTravel); Translate(atmosphere,MistTravel);
             SamplingChanged?.Invoke(this,EventArgs.Empty);
         }

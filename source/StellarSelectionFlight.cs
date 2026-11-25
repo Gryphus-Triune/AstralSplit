@@ -174,7 +174,7 @@ namespace AstralSplit
                 fall.Resume(now);
                 (returning.BehindGate?rearTransit:flight).Children.Remove(returning.Art);
                   lensedFlyers.Children.Remove(returning.Art);
-                ForgetSource(returning);appFlights.Remove(path);QueueChart();return;
+                appFlights.Remove(path);QueueChart();return;
             }
             if(!selected && fall!=null){
                 star=fall.Position(now);behindGate=fall.IsBehind(star,now);
@@ -236,7 +236,6 @@ namespace AstralSplit
                 if(!valid || now>=moving.End) finishedFlights.Add(pair.Key);
                 else {
                     moving.Draw(now);
-                    if(Live)TraceSource(moving,MapToScreen(moving.Position(now)),AppInk(pair.Key));
                     if(moving.BehindGate && (!Live || moving.ClearOfGate(GateCenter,56*CoreScale))){
                         rearTransit.Children.Remove(moving.Art);lensedFlyers.Children.Remove(moving.Art);flight.Children.Add(moving.Art);moving.BehindGate=false;
                     }
@@ -246,7 +245,7 @@ namespace AstralSplit
                 var moving=appFlights[path];
                 (moving.BehindGate?rearTransit:flight).Children.Remove(moving.Art);
                 if(moving.BehindGate)lensedFlyers.Children.Remove(moving.Art);
-                ForgetSource(moving);appFlights.Remove(path);
+                appFlights.Remove(path);
                 if(moving.ToStar && slots.TryGetValue(path,out int i)){
                     var anchor=Project(Anchors[i].X,Anchors[i].Y);
                     LightArrival(path,anchor);
@@ -302,7 +301,6 @@ namespace AstralSplit
             rearTransit.Children.Clear();
             rearTransit.Children.Add(streamBack);
             if(appFlights.Count==0 && landings.Count==0)return;
-            foreach(var f in appFlights.Values)ForgetSource(f);
             appFlights.Clear(); finishedFlights.Clear(); flight.Children.Clear();
             foreach(string path in landings.Keys.ToArray()) CancelLanding(path);
             QueueChart();

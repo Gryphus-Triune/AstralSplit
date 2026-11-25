@@ -422,6 +422,54 @@
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
+        <DataTemplate x:Key="MilestoneMenuCard">
+            <Grid Background="Transparent" KeyboardNavigation.TabNavigation="Cycle"
+                  AutomationProperties.Name="开发者菜单">
+                <app:CardShadow Opacity="{DynamicResource DecorationOpacity}" IsHitTestVisible="False"/>
+                <app:LiquidSheet x:Name="MilestoneMenuGlass" Film="{DynamicResource ListFilm}"/>
+                <app:ListCardBorder CornerRadius="14" BorderThickness="0,1,0,0" Highlight="{DynamicResource CardHighlight}"
+                                    IsHitTestVisible="False"/>
+                <Grid Margin="12,8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,4" LastChildFill="True">
+                        <Button x:Name="CloseMilestoneMenu" DockPanel.Dock="Right" Style="{StaticResource PlainButton}"
+                                Width="26" Height="26" Content="×" FontSize="17" TabIndex="6" KeyboardNavigation.AcceptsReturn="True"
+                                AutomationProperties.Name="关闭开发者菜单"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="开发者菜单" FontSize="14"
+                                   FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
+                    </DockPanel>
+                    <ScrollViewer Grid.Row="1" Focusable="False" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="MilestoneChoices">
+                            <StackPanel.Resources>
+                                <Style TargetType="Button" BasedOn="{StaticResource PlainButton}">
+                                    <Setter Property="Height" Value="28"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                                    <Setter Property="KeyboardNavigation.AcceptsReturn" Value="True"/>
+                                    <Setter Property="ContentTemplate">
+                                        <Setter.Value>
+                                            <DataTemplate>
+                                                <Grid Width="204">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="72"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                               FontSize="12" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource ListValueInk}"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding}" FontSize="13" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </StackPanel.Resources>
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Button x:Name="ClearMilestonePreview" Grid.Row="2" HorizontalAlignment="Right" Style="{StaticResource PlainButton}"
+                            Content="清除预览" Margin="0,4,0,0" Padding="8,0" Height="26" TabIndex="5" FontSize="12"
+                            KeyboardNavigation.AcceptsReturn="True"/>
+                </Grid>
+            </Grid>
+        </DataTemplate>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -430,7 +478,7 @@
         <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Border Grid.RowSpan="2" Background="{DynamicResource WindowFill}" IsHitTestVisible="False"/>
         <app:StarfieldLayer x:Name="Sky" Grid.RowSpan="2" IsHitTestVisible="False" Focusable="False" ClipToBounds="True"/>
-        <Border x:Name="SkyInput" Grid.Row="1" Background="Transparent" Focusable="False"/>
+        <Border x:Name="SkyInput" Grid.Row="1" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="False"/>
         <Grid x:Name="ObservatoryCaption" Grid.Row="0" Background="Transparent" app:LiquidLens.Scene="{Binding ElementName=Sky}">
             <Grid x:Name="CaptionButtons" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="24,0,0,0"
                   Background="Transparent" shell:WindowChrome.IsHitTestVisibleInChrome="True">
@@ -491,11 +539,26 @@
                                 </Canvas>
                             </Grid>
                             <StackPanel Grid.Column="1" Margin="0,0,12,0">
-                                <TextBlock x:Name="ModeTitle" Text="分流已关闭" FontSize="28" FontWeight="Light" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SkyText}"/>
-                                <TextBlock x:Name="ModeDetail" Text="正在检查网络连接…" Foreground="{DynamicResource SkyBodyText}" FontSize="13"
-                                           Margin="0,2,0,0" MinHeight="17" MaxHeight="34" LineHeight="17" LineStackingStrategy="BlockLineHeight"
-                                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                                <Grid>
+                                    <Canvas IsHitTestVisible="False">
+                                        <app:TextHalo x:Name="PreviousModeTitle" Style="{StaticResource {x:Type TextBlock}}" Opacity="0"
+                                                      Width="{Binding ActualWidth, ElementName=ModeTitle}" FontSize="{Binding FontSize, ElementName=ModeTitle}"
+                                                      FontWeight="Light" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SkyText}"/>
+                                    </Canvas>
+                                    <TextBlock x:Name="ModeTitle" Text="分流已关闭" FontSize="28" FontWeight="Light" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SkyText}"/>
+                                </Grid>
+                                <Grid Margin="0,2,0,0">
+                                    <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                                        <app:TextHalo x:Name="PreviousModeDetail" Style="{StaticResource {x:Type TextBlock}}" Opacity="0"
+                                                      Width="{Binding ActualWidth, ElementName=ModeDetail}" FontSize="13" MaxHeight="34"
+                                                      LineHeight="17" LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap"
+                                                      TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SkyBodyText}"/>
+                                    </Canvas>
+                                    <TextBlock x:Name="ModeDetail" Text="正在检查网络连接…" Foreground="{DynamicResource SkyBodyText}" FontSize="13"
+                                               MinHeight="17" MaxHeight="34" LineHeight="17" LineStackingStrategy="BlockLineHeight"
+                                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                                </Grid>
                             </StackPanel>
                             <app:StellarTrafficView x:Name="StellarTraffic" Grid.Column="2" VerticalAlignment="Center" Width="157" Height="43"
                                 AutomationProperties.Name="网卡收发速率" ToolTipService.InitialShowDelay="600"
@@ -790,6 +853,8 @@
                     </Grid>
                 </Grid>
             </app:ListCardBorder>
+            <Border x:Name="MilestoneMenuHost" Panel.ZIndex="2" Width="264" Margin="8" HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom" Visibility="Collapsed"/>
             </Grid>
 
 

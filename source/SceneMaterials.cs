@@ -93,6 +93,17 @@ namespace AstralSplit
 
         void BrushRect(Brush brush,Rect rect,SceneDevice.Pass p,Matrix m,Rect clip,double alpha,double spin){
             if(brush==null || brush.Opacity<=0 || !Valid(rect))return;
+            if(brush is VisualBrush light && sky!=null && (light.Visual==sky.MilestoneArtwork || light.Visual==sky.CoronaArtwork)){
+                // These brushes use identical client-space view and destination rectangles.
+                // Direct drawing retains the panel scissor and avoids an extra full-screen texture.
+                var glassClip=Rect.Intersect(clip,Rect.Transform(rect,m));
+                if(liveFrost && light.Visual==sky.MilestoneArtwork){
+                    // Live frost already scatters the entire field. Transmit a small, sharp
+                    // component of the passing shock without doubling the settled gas cloud.
+                    if(sky.Milestone.Bursting)VisualNode(sky.Milestone,p,m,glassClip,alpha*light.Opacity*.28);
+                }else VisualNode(light.Visual,p,m,glassClip,alpha*light.Opacity,false);
+                return;
+            }
             if(brush is SolidColorBrush solid){
                 var color=solid.Color;if(color.A==0)return;
                 double a=color.A/255d;var q=SceneDevice.Quad(p,rect,m,clip,0,Unit,alpha*brush.Opacity,1);

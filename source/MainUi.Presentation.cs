@@ -36,8 +36,8 @@ namespace AstralSplit
         void InitializePresentation()
         {
             noticeReveal = Find<Grid>("NoticeReveal");
-            statusTitle = new FadingText(mode, 0);
-            statusDetail = new FadingText(detail, 30);
+            statusTitle = new FadingText(mode, Find<TextHalo>("PreviousModeTitle"), 0);
+            statusDetail = new FadingText(detail, Find<TextHalo>("PreviousModeDetail"), 30);
             statusGlyph.Fill = statusFill;
             dot.Fill = networkFill;
             all.Foreground = runningText;
@@ -454,6 +454,7 @@ namespace AstralSplit
             statusDetail.Snap();
             networkFill.BeginAnimation(SolidColorBrush.ColorProperty, null);
             PaintArtwork(artworkState ?? "StatusOff", false);
+            sky?.RefreshMilestonePreview();
             SnapListLoading();
             UpdateLoadingMotion();
             ShowNotice(noticeWanted, noticeMessage, false);
@@ -482,45 +483,79 @@ namespace AstralSplit
 
         sealed class FadingText
         {
-            readonly TextBlock text;
+            readonly TextBlock text, previous;
+            const int fadeMilliseconds = 180;
             readonly int delay;
-            readonly TranslateTransform entrance = new TranslateTransform();
-            string desired;
-            int revision;
+            readonly DispatcherTimer settle;
+            readonly TranslateTransform entrance = new TranslateTransform(), exit = new TranslateTransform();
 
-            internal FadingText(TextBlock text, int delay)
+            internal FadingText(TextBlock text, TextBlock previous, int delay)
             {
                 this.text = text;
+                this.previous = previous;
                 this.delay = delay;
-                desired = text.Text;
                 text.RenderTransform = entrance;
+                previous.RenderTransform = exit;
+                // A busy or occluded render queue can deliver its next frame after the fade deadline.
+                settle = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(fadeMilliseconds + delay) };
+                settle.Tick += (s, e) => Snap();
             }
 
             internal void Show(string value)
             {
-                if (desired == value) return;
-                desired = value;
-                if (!UiMotion.CanAnimate(text)) { Snap(); return; }
-                int current = ++revision;
-                var rate = DisplayRefresh.For(text);
-                var fade = UiMotion.Ease(text.Opacity, 0, 100, rate, 0.42, 0, 1, 1, delay);
-                fade.Completed += (s, e) => {
-                    if (current != revision) return;
+                if (text.Text == value) return;
+                if (!UiMotion.CanAnimate(text) || SystemParameters.HighContrast)
+                {
                     text.Text = value;
-                    text.Opacity = 1;
-                    text.BeginAnimation(UIElement.OpacityProperty, UiMotion.Ease(0, 1, 180, rate));
-                    entrance.BeginAnimation(TranslateTransform.YProperty, UiMotion.Ease(4, 0, 180, rate));
-                };
-                text.Opacity = 0;
-                text.BeginAnimation(UIElement.OpacityProperty, fade);
+                    Snap();
+                    return;
+                }
+
+                double currentAlpha = text.Opacity, oldAlpha = previous.Opacity;
+                bool returning = oldAlpha > 0 && previous.Text == value;
+                double from = currentAlpha;
+                double startY = returning ? exit.Y : 4;
+                if (returning || currentAlpha >= oldAlpha)
+                {
+                    from = oldAlpha;
+                    previous.Text = text.Text;
+                    exit.Y = entrance.Y;
+                    oldAlpha = currentAlpha;
+                }
+
+                // SnapshotAndReplace may hold the last clock sample until the next render tick.
+                // Seed both layers before publishing the new text so a rapid reversal stays continuous.
+                settle.Stop();
+                StopClocks();
+                previous.Opacity = oldAlpha;
+                text.Opacity = from;
+                entrance.Y = startY;
+                text.Text = value;
+                var rate = DisplayRefresh.For(text);
+                var fadeOut = UiMotion.Ease(oldAlpha, 0, fadeMilliseconds, rate, delay: delay);
+                var fadeIn = UiMotion.Ease(from, 1, fadeMilliseconds, rate, delay: delay);
+                var rise = UiMotion.Ease(startY, 0, fadeMilliseconds, rate, delay: delay);
+                fadeOut.FillBehavior = fadeIn.FillBehavior = rise.FillBehavior = FillBehavior.HoldEnd;
+                previous.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+                text.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                entrance.BeginAnimation(TranslateTransform.YProperty, rise);
+                settle.Start();
             }
 
             internal void Snap()
             {
-                revision++;
-                text.Text = desired;
+                settle.Stop();
+                StopClocks();
                 text.Opacity = 1;
+                previous.Opacity = 0;
+                previous.Text = String.Empty;
+                entrance.Y = exit.Y = 0;
+            }
+
+            void StopClocks()
+            {
                 text.BeginAnimation(UIElement.OpacityProperty, null);
+                previous.BeginAnimation(UIElement.OpacityProperty, null);
                 entrance.BeginAnimation(TranslateTransform.YProperty, null);
             }
         }
