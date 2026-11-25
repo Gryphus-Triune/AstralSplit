@@ -14,9 +14,26 @@ AstralSplit 是一款 Windows 按应用分流工具。勾选应用的新建公�
 
 支持范围、兼容绘制入口、旧版迁移和恢复方式见[使用说明](使用说明.md)。
 
-## 平台与分流范围
+## 硬件与系统兼容性
 
-- 本版在 Windows 11 24H2 x64 上复测。默认使用 Direct3D 11 和 DirectComposition，也可用「兼容绘制.cmd」启动 WPF 绘制。
+下载包面向 **Windows x64 电脑**。Intel 和 AMD 的 64 位处理器均可使用这个架构的程序。分流功能对显卡品牌没有要求，核显电脑也可以使用。
+
+| 你的设备 | 2.1.0 的适用情况 |
+| --- | --- |
+| Windows 11 x64 台式机或笔记本 | 本版实测环境为 Windows 11 24H2、.NET Framework 4.8.1、Core i7-14700KF 和 GeForce RTX 5080。这是一套验证配置，处理器和显卡型号均不构成最低门槛。 |
+| Intel、AMD 或 NVIDIA 显卡，包括核显 | 星空、黑洞与液态玻璃使用 Direct3D 11 和 DirectComposition。程序按显示器选择显卡，显卡和驱动支持相应功能时可走原生加速。Intel 和 AMD 显卡的适用性依据源码判断，此次未做真机验证。 |
+| 老显卡或仅能软件绘制的环境 | 可用「兼容绘制.cmd」启动 WPF 界面。缺少硬件着色器支持时，部分动态光效会采用静帧或简化绘制。分流本身由独立的网络引擎处理。 |
+| Windows 10 x64 | 具备所用图形接口，可在装有 .NET Framework 4.8 系列运行时的系统上尝试。本次发布未在 Windows 10 真机上完成验证。 |
+| Windows on Arm、32 位 Windows、macOS 或 Linux | 本版只提供 Windows x64 包。Windows 11 on Arm 可模拟 x64 应用，但 VPN 内核驱动必须支持 ARM64，整套分流尚未验证。其余平台没有对应的原生发行包。 |
+
+**网络条件。** 普通以太网卡或 Wi-Fi 即可。实际分流还需要已连接的 VPN 提供可用的虚拟网卡和公网路由，并且原网络仍能独立直连。启动时需要 Windows 管理员授权。
+
+**CUDA 与高刷。** 支持的 NVIDIA 显卡可用 CUDA 生成银河底图。CUDA 不可用时，程序自动改用 CPU 生成底图，其余支持 Direct3D 的特效仍可用显卡加速。运行便携包无需安装 CUDA Toolkit，也不需要 RTX 光追单元或 AI 加速器。普通显示器即可使用。4K / 240 Hz 是测试场景，实际帧率随分辨率、驱动和特效负载变化。目前没有通过跨机型测试确定最低内存、显存或保证特定帧率的显卡型号。
+
+图形设备的选择与回退可在[原生渲染代码](source/WindowScene.inl)和[银河底图生成代码](source/SkyAtlas.cs)中核对。系统兼容资料见微软的 [WPF 图形分级](https://learn.microsoft.com/dotnet/desktop/wpf/advanced/graphics-rendering-tiers)与 [Windows on Arm 常见问题](https://learn.microsoft.com/windows/arm/faq)。
+
+## 分流范围
+
 - 分流规则按可执行文件路径保存。依赖共享系统服务或自行绑定网络接口的应用，连接的实际出口需要单独核实。
 - 通用模式按网卡分别验证 TCP 和 UDP。只通内网的 VPN、没有虚拟网卡的代理，或阻断独立直连的断线保护，可能无法配合分流。
 - 星云内部的节点规则仍会决定最终处理路径。连接详情显示本机引擎观测到的出站，已建立连接的出口可能沿用旧规则。
